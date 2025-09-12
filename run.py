@@ -37,6 +37,8 @@ def create_args():
     parser.add_argument('--DW', default=False, action='store_true', help='dataset balancing')
     parser.add_argument('--prompt_param', nargs="+", type=float, default=[1, 1, 1],
                          help="e prompt pool size, e prompt length, g prompt length")
+    parser.add_argument('--use_interval_activation', default=False, action='store_true', 
+                        help="The flag to indicate if interval activations should be used or not")
 
     # Config Arg
     parser.add_argument('--config', type=str, default="configs/config.yaml",

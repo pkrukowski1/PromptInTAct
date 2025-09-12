@@ -27,6 +27,7 @@ mkdir -p $OUTDIR
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name CODAPrompt \
     --prompt_param 100 8 0.0 \
+    --use_interval_activation \
     --log_dir ${OUTDIR}/coda-p
 
 # DualPrompt
@@ -38,6 +39,7 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name DualPrompt \
     --prompt_param 10 20 6 \
+    --use_interval_activation \
     --log_dir ${OUTDIR}/dual-prompt
 
 # L2P++
@@ -49,6 +51,7 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name L2P \
     --prompt_param 30 20 -1 \
+    --use_interval_activation \
     --log_dir ${OUTDIR}/l2p++
 
 # # FT
