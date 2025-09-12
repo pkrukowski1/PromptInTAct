@@ -1,12 +1,8 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.nn.init as init
-import torchvision.models as models
-from torch.autograd import Variable
 from .vit import VisionTransformer
-import numpy as np
 import copy
+from .layers.interval_activation import IntervalActivation
 
 # Our method!
 class CodaPrompt(nn.Module):
@@ -351,11 +347,16 @@ def tensor_prompt(a, b, c=None, ortho=False):
     return p    
 
 class ViTZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None):
+    def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None,
+                 use_interval_activation=False):
         super(ViTZoo, self).__init__()
 
-        # get last layer
-        self.last = nn.Linear(512, num_classes)
+        # get last layer with a potential interval activation function
+        self.classifier = nn.Sequential(
+            IntervalActivation(768) if use_interval_activation else nn.Identity(),
+            nn.Linear(768, num_classes)
+        )
+       
         self.prompt_flag = prompt_flag
         self.task_id = None
 
@@ -369,9 +370,6 @@ class ViTZoo(nn.Module):
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()
             del load_dict['head.weight']; del load_dict['head.bias']
             zoo_model.load_state_dict(load_dict)
-
-        # classifier
-        self.last = nn.Linear(768, num_classes)
 
         # create prompting module
         if self.prompt_flag == 'l2p':
@@ -400,12 +398,14 @@ class ViTZoo(nn.Module):
             out = out[:,0,:]
         out = out.view(out.size(0), -1)
         if not pen:
-            out = self.last(out)
+            out = self.classifier(out)
+            
         if self.prompt is not None and train:
             return out, prompt_loss
         else:
             return out
             
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
-    return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)
+def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, use_interval_activation=False):
+    return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param,
+                  use_interval_activation=use_interval_activation)
 

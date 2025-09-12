@@ -49,9 +49,9 @@ class Prompt(NormalNN):
         # parse optimizer args
         # Multi-GPU
         if isinstance(self.model, torch.nn.DataParallel):
-            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
+            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.classifier.parameters())
         else:
-            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.last.parameters())
+            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.classifier.parameters())
         print('*****************************************')
         optimizer_arg = {'params':params_to_opt,
                          'lr':self.config['lr'],
@@ -103,7 +103,8 @@ class CODAPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param,
+                                                                               use_interval_activation=cfg['use_interval_activation'])
         return model
 
 # @article{wang2022dualprompt,
@@ -119,7 +120,8 @@ class DualPrompt(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,
+                                                                               use_interval_activation=cfg['use_interval_activation'])
         return model
 
 # @inproceedings{wang2022learning,
@@ -136,5 +138,6 @@ class L2P(Prompt):
 
     def create_model(self):
         cfg = self.config
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,
+                                                                               use_interval_activation=cfg['use_interval_activation'])
         return model

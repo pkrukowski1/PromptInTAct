@@ -123,7 +123,8 @@ class Trainer:
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
-                        'prompt_param':[self.num_tasks,args.prompt_param]
+                        'prompt_param':[self.num_tasks,args.prompt_param],
+                        'use_interval_activation': args.use_interval_activation
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
