@@ -183,13 +183,13 @@ class VisionTransformer(nn.Module):
         x = x + self.pos_embed[:,:x.size(1),:]
         x = self.pos_drop(x)
 
-        prompt_loss = torch.zeros((1,), requires_grad=True).cuda()
+        prompt_loss = torch.zeros((1,), requires_grad=True).to(x.device)
         for i,blk in enumerate(self.blocks):
 
             if prompt is not None:
                 if train:
                     p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
-                    prompt_loss += loss
+                    prompt_loss = prompt_loss + loss
                 else:
                     p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
                 # if p_list is not None and i == 1:

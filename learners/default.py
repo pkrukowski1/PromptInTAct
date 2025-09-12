@@ -210,7 +210,7 @@ class NormalNN(nn.Module):
     def data_weighting(self, dataset, num_seen=None):
         self.dw_k = torch.tensor(np.ones(self.valid_out_dim + 1, dtype=np.float32))
         # cuda
-        if self.cuda:
+        if self.gpu:
             self.dw_k = self.dw_k.cuda()
 
     def save_model(self, filename):

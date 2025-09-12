@@ -48,7 +48,7 @@ class Prompt(NormalNN):
 
         # parse optimizer args
         # Multi-GPU
-        if len(self.config['gpuid']) > 1:
+        if isinstance(self.model, torch.nn.DataParallel):
             params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
         else:
             params_to_opt = list(self.model.prompt.parameters()) + list(self.model.last.parameters())
@@ -77,15 +77,22 @@ class Prompt(NormalNN):
 
     def create_model(self):
         pass
-
+    
     def cuda(self):
-        torch.cuda.set_device(self.config['gpuid'][0])
-        self.model = self.model.cuda()
-        self.criterion_fn = self.criterion_fn.cuda()
-
-        # Multi-GPU
-        if len(self.config['gpuid']) > 1:
-            self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
+        if torch.cuda.is_available():
+            torch.cuda.set_device(self.config['gpuid'][0])
+            self.model = self.model.cuda()
+            self.criterion_fn = self.criterion_fn.cuda()
+            # Multi-GPU
+            if len(self.config['gpuid']) > 1:
+                self.model = torch.nn.DataParallel(
+                    self.model, 
+                    device_ids=self.config['gpuid'], 
+                    output_device=self.config['gpuid'][0]
+                )
+        else:
+            self.model = self.model.cpu()
+            self.criterion_fn = self.criterion_fn.cpu()
         return self
 
 # Our method!
