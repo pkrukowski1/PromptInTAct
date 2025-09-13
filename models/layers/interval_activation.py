@@ -109,8 +109,7 @@ class IntervalActivation(nn.Module):
         Returns:
             torch.Tensor: Activated tensor of shape (batch, flattened input_shape).
         """
-        x_flat = x.view(x.shape[0], -1)
-        out = F.leaky_relu(x_flat)
+        out = x.view(x.shape[0], -1)
 
         if self.training:
             self.curr_task_last_batch = out           
