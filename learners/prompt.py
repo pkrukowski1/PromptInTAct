@@ -22,7 +22,7 @@ class Prompt(NormalNN):
         self.prompt_param = learner_config['prompt_param']
         super(Prompt, self).__init__(learner_config)
 
-    def update_model(self, inputs, targets):
+    def update_model(self, inputs, targets, interval_penalization=None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
@@ -33,8 +33,11 @@ class Prompt(NormalNN):
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
+        # interval loss
+        interval_loss = interval_penalization.forward(inputs, total_loss) if interval_penalization is not None else total_loss
+
         # ce loss
-        total_loss = total_loss + prompt_loss.sum()
+        total_loss = total_loss + prompt_loss.sum() + interval_loss
 
         # step
         self.optimizer.zero_grad()

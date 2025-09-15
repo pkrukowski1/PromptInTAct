@@ -67,7 +67,7 @@ class NormalNN(nn.Module):
     #           MODEL TRAINING               #
     ##########################################
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, interval_penalization=None):
         
         # try to load model
         need_train = True
@@ -108,7 +108,7 @@ class NormalNN(nn.Module):
                         y = y.cuda()
                     
                     # model update
-                    loss, output= self.update_model(x, y)
+                    loss, output= self.update_model(x, y, interval_penalization=interval_penalization)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
@@ -147,8 +147,7 @@ class NormalNN(nn.Module):
         loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
         return loss_supervised 
 
-    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
-        
+    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None, interval_penalization=None):
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self.forward(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)

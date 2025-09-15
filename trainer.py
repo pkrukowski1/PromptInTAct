@@ -10,6 +10,7 @@ import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
+from regularization.interval_regularization import IntervalPenalization
 
 class Trainer:
 
@@ -129,6 +130,13 @@ class Trainer:
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
+        if args.use_interval_activation:
+            self.interval_penalization = IntervalPenalization(
+                var_scale=args.var_scale, 
+                output_reg_scale=args.output_reg_scale,
+                interval_drift_reg_scale=args.interval_drift_reg_scale
+            )
+
     def task_eval(self, t_index, local=False, task='acc'):
 
         val_name = self.task_names[t_index]
@@ -150,8 +158,21 @@ class Trainer:
         temp_dir = self.log_dir + '/temp/'
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
+        interval_penalization = None
         # for each task
         for i in range(self.max_task):
+            
+            if self.learner_config['use_interval_activation']:
+                self.interval_penalization.setup_task(
+                    task_id=i,
+                    curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
+                        else self.learner.model.classifier,
+                    curr_feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
+                        else self.learner.model.feat,
+                    prompt=self.learner.model.prompt
+                )
+
+                interval_penalization = self.interval_penalization
 
             # save current task index
             self.current_t_index = i
@@ -199,7 +220,7 @@ class Trainer:
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization)
 
             # save model
             self.learner.save_model(model_save_dir)

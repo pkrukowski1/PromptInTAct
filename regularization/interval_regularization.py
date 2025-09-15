@@ -49,7 +49,6 @@ class IntervalPenalization(nn.Module):
     """
 
     def __init__(self,
-            prompt: Union[CodaPrompt,L2P,DualPrompt],
             var_scale: float = 0.01,
             output_reg_scale: float = 1.0,
             interval_drift_reg_scale: float = 1.0
@@ -77,10 +76,11 @@ class IntervalPenalization(nn.Module):
         self.old_classifier_head = None
         self.old_feature_extractor = None
 
-        self.prompt = prompt
+        self.prompt = None
 
 
-    def setup_task(self, task_id: int, curr_classifier_head: nn.Sequential, curr_feature_extractor: nn.Sequential) -> None:
+    def setup_task(self, task_id: int, curr_classifier_head: nn.Sequential, 
+                   curr_feature_extractor: nn.Sequential, prompt: Union[CodaPrompt,L2P,DualPrompt]) -> None:
         """
         Prepare the plugin for a new task.
 
@@ -90,6 +90,7 @@ class IntervalPenalization(nn.Module):
         """
         self.task_id = task_id
         self.curr_classifier_head = curr_classifier_head
+        self.prompt = prompt
 
         if task_id > 0:
             self.params_buffer = {}
@@ -105,6 +106,10 @@ class IntervalPenalization(nn.Module):
             self.old_feature_extractor = deepcopy(curr_feature_extractor)
             for p in self.old_feature_extractor.parameters():
                 p.requires_grad = False
+
+            for layer in self.curr_classifier_head:
+                if isinstance(layer, IntervalActivation):
+                    layer.reset_range()
 
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
