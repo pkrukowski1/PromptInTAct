@@ -31,4 +31,4 @@ python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $O
     --log_dir ${OUTDIR}/coda-p \
     --var_scale 0.01 \
     --output_reg_scale 1.0 \
-    --interval_drift_reg_scale: 1.0
+    --interval_drift_reg_scale 1.0
