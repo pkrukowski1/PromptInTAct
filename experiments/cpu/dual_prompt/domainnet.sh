@@ -1,14 +1,14 @@
-# bash experiments/imagenet-r.sh
+# bash experiments/domainnet.sh
 # experiment settings
-DATASET=ImageNet_R
-N_CLASS=200
+DATASET=DomainNet
+N_CLASS=345
 
 # save directory
-OUTDIR=outputs/${DATASET}/20-task
+OUTDIR=outputs/${DATASET}/5-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
-CONFIG=configs/imnet-r_prompt_long.yaml
+GPUID='-1'
+CONFIG=configs/domainnet_prompt.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -32,7 +32,7 @@ for var in "${VAR_SCALES[@]}"; do
     for drift in "${INTERVAL_DRIFT_SCALES[@]}"; do
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name DualPrompt \
-            --prompt_param 20 20 6 \
+            --prompt_param 5 20 6 \
             --log_dir ${OUTDIR}/dual-prompt \
             --var_scale $var \
             --output_reg_scale $out \

@@ -4,11 +4,11 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-OUTDIR=outputs/${DATASET}/10-task
+OUTDIR=outputs/${DATASET}/5-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
-CONFIG=configs/imnet-r_prompt.yaml
+GPUID='-1'
+CONFIG=configs/imnet-r_prompt_short.yaml
 REPEAT=1
 OVERWRITE=0
 

@@ -1,14 +1,14 @@
-# bash experiments/domainnet.sh
+# bash experiments/imagenet-r.sh
 # experiment settings
-DATASET=DomainNet
-N_CLASS=345
+DATASET=ImageNet_R
+N_CLASS=200
 
 # save directory
 OUTDIR=outputs/${DATASET}/5-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
-CONFIG=configs/domainnet_prompt.yaml
+GPUID='-1'
+CONFIG=configs/imnet-r_prompt_short.yaml
 REPEAT=1
 OVERWRITE=0
 
