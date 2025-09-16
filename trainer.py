@@ -167,13 +167,13 @@ class Trainer:
                     task_id=i,
                     curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
                         else self.learner.model.classifier,
-                    curr_feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
+                    feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
                         else self.learner.model.feat,
                     prompt=self.learner.model.prompt
                 )
 
                 interval_penalization = self.interval_penalization
-
+           
             # save current task index
             self.current_t_index = i
 
