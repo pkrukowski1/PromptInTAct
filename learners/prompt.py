@@ -41,7 +41,7 @@ class Prompt(NormalNN):
 
         # step
         self.optimizer.zero_grad()
-        total_loss.backward()
+        total_loss.backward(retain_graph=True if interval_penalization is not None else False)
         self.optimizer.step()
 
         return total_loss.detach(), logits
