@@ -222,7 +222,9 @@ class NormalNN(nn.Module):
         self.log('=> Save Done')
 
     def load_model(self, filename):
-        self.model.load_state_dict(torch.load(filename + 'class.pth'))
+        state_dict = torch.load(filename + 'class.pth', weights_only=True)
+        self.model.load_state_dict(state_dict)
+
         self.log('=> Load Done')
         if self.gpu:
             self.model = self.model.cuda()

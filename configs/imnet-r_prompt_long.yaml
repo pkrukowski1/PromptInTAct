@@ -13,7 +13,7 @@ model_type: zoo
 model_name: vit_pt_imnet
 max_task: -1
 dataroot: data
-workers: 4
+workers: 1
 validation: False
 train_aug: True
 rand_split: True

@@ -47,13 +47,16 @@ class IntervalActivation(nn.Module):
         """
 
         super().__init__()
+        self.init_args = (input_shape,)
+        self.init_kwargs = dict(lower_percentile=lower_percentile, upper_percentile=upper_percentile)
+
         self.input_shape = np.prod(input_shape)
         self.lower_percentile = lower_percentile
         self.upper_percentile = upper_percentile
         
         self.test_act_buffer = []
-        self.min = torch.zeros(self.input_shape, requires_grad=True)
-        self.max = torch.zeros(self.input_shape, requires_grad=True)
+        self.register_buffer("min", torch.zeros(self.input_shape))
+        self.register_buffer("max", torch.zeros(self.input_shape))
         self.dummy_range = True
 
         self.curr_task_last_batch = None
@@ -87,9 +90,9 @@ class IntervalActivation(nn.Module):
         min_vals = sorted_buf[l_idx]
         max_vals = sorted_buf[u_idx]
         
-        self.min = torch.minimum(self.min, min_vals)
-        self.max = torch.maximum(self.max, max_vals)
-        
+        self.min.copy_(torch.minimum(self.min, min_vals))
+        self.max.copy_(torch.maximum(self.max, max_vals))
+
         self.test_act_buffer = []
 
 
@@ -112,7 +115,7 @@ class IntervalActivation(nn.Module):
         out = x.view(x.shape[0], -1)
 
         if self.training:
-            self.curr_task_last_batch = out           
+            self.curr_task_last_batch = out        
         else:
             self.test_act_buffer.extend(list(out.detach().cpu()))
 

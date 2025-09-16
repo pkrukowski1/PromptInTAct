@@ -1,5 +1,6 @@
-from copy import deepcopy
+from copy import deepcopy, copy
 from typing import Union
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -30,6 +31,13 @@ class IntervalPenalization(nn.Module):
 
         self.prompt = None
 
+    def detach_interval_last_batches(self, curr_classifier_head):
+        layers = list(curr_classifier_head.children())
+        for layer in layers:
+            if isinstance(layer, IntervalActivation):
+                if layer.curr_task_last_batch is not None:
+                    layer.curr_task_last_batch = []
+
 
     def setup_task(self, task_id: int, curr_classifier_head: nn.Sequential, 
                    feature_extractor: nn.Sequential, prompt: Union[CodaPrompt,L2P,DualPrompt]) -> None:
@@ -44,7 +52,8 @@ class IntervalPenalization(nn.Module):
                 for name, p in self.curr_classifier_head.named_parameters()
         }
 
-            self.old_classifier_head = deepcopy(self.curr_classifier_head)
+            self.detach_interval_last_batches(curr_classifier_head)
+            self.old_classifier_head = deepcopy(curr_classifier_head)
             for p in self.old_classifier_head.parameters():
                 p.requires_grad = False
 
@@ -58,7 +67,6 @@ class IntervalPenalization(nn.Module):
             for layer in self.curr_classifier_head:
                 if isinstance(layer, IntervalActivation):
                     layer.reset_range()
-
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
 
@@ -86,7 +94,7 @@ class IntervalPenalization(nn.Module):
                         q, _ = self.feature_extractor(x)
                         q = q[:,0,:]
                     y_old, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id)
-                    y_old = y_old[:,0,:]
+                    y_old = y_old[:,0,:].detach()
 
                     mask = ((acts >= lb) & (acts <= ub)).float()
                     interval_drift_loss += (
