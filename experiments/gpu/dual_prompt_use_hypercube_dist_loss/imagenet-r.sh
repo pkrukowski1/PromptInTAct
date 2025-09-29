@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DualPrompt_imagenet-r_long
+#SBATCH --job-name=DualPrompt_imagenet-r_Hypercube_Dist_Loss
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -17,11 +17,11 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/20-task
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/10-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/imnet-r_prompt_long.yaml
+CONFIG=configs/imnet-r_prompt.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -47,11 +47,12 @@ for var in "${VAR_SCALES[@]}"; do
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name DualPrompt \
-            --prompt_param 20 20 6 \
+            --prompt_param 10 20 6 \
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \
-            --interval_drift_reg_scale $drift
+            --interval_drift_reg_scale $drift \
+            --use_hypercube_dist_loss
     done
   done
 done

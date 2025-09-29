@@ -17,7 +17,7 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/outputs/${DATASET}/10-task
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/10-task
 
 # hard coded inputs
 GPUID='0'
@@ -38,8 +38,8 @@ mkdir -p $OUTDIR
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 # Define the ranges you want to search over
 VAR_SCALES=("0.001" "0.01" "0.1")
-OUTPUT_REG_SCALES=("0.1" "1.0" "10.0", "100.0")
-INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0", "100.0")
+OUTPUT_REG_SCALES=("0.1" "1.0" "10.0" "100.0")
+INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
 
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do

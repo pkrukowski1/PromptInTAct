@@ -44,6 +44,8 @@ def create_args():
         " when interval regularization is used")
     parser.add_argument('--interval_drift_reg_scale', type=float, default=0.1, help="interval drift regularization balancing" \
         " when interval regularization is used")
+    parser.add_argument('--use_hypercube_dist_loss', default=False, action='store_true', 
+                        help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
 
 
     # Config Arg

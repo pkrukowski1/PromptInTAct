@@ -13,7 +13,8 @@ class IntervalPenalization(nn.Module):
     def __init__(self,
             var_scale: float = 0.01,
             output_reg_scale: float = 1.0,
-            interval_drift_reg_scale: float = 1.0
+            interval_drift_reg_scale: float = 1.0,
+            use_hypercube_dist_loss: bool = True
         ) -> None:
         
         super().__init__()
@@ -22,8 +23,10 @@ class IntervalPenalization(nn.Module):
         self.var_scale = var_scale
         self.output_reg_scale = output_reg_scale
         self.interval_drift_reg_scale = interval_drift_reg_scale
+        self.use_hypercube_dist_loss = use_hypercube_dist_loss
 
         self.params_buffer = {}
+        self.data_buffer = set()
 
         self.curr_classifier_head = None
         self.old_classifier_head = None
@@ -64,11 +67,47 @@ class IntervalPenalization(nn.Module):
             for p in self.old_prompt.parameters():
                 p.requires_grad = False
 
-            for layer in self.curr_classifier_head:
+            activation_buffers = {}
+            hook_handles = []
+
+            for idx, layer in enumerate(self.curr_classifier_head):
                 if isinstance(layer, IntervalActivation):
-                    layer.reset_range()
+                    activation_buffers[idx] = []
+
+                    def hook(module, input, output, idx=idx):
+                        activation_buffers[idx].append(output.detach())
+                    
+                    handle = layer.register_forward_hook(hook)
+                    hook_handles.append(handle)
+
+            self.curr_classifier_head.eval()
+
+            with torch.no_grad():
+                for x in self.data_buffer:
+                    x = x.to(next(self.curr_classifier_head.parameters()).device)
+
+                    q, _ = self.feature_extractor(x)
+                    q = q[:,0,:]
+
+                    out, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id-1)
+                    out = out[:,0,:]
+
+                    out = out.view(out.size(0), -1)
+                    out = self.curr_classifier_head(out)
+
+            for idx, layer in enumerate(self.curr_classifier_head):
+                if isinstance(layer, IntervalActivation):
+                    layer.reset_range(activation_buffers[idx])
+
+            for handle in hook_handles:
+                handle.remove()
+
+        self.curr_classifier_head.train()
+        self.data_buffer = set()
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
+
+        self.data_buffer.add(x)
 
         layers = list(self.curr_classifier_head.children())
         interval_act_layers = [i for i, layer in enumerate(layers) if isinstance(layer, IntervalActivation)]
@@ -76,6 +115,7 @@ class IntervalPenalization(nn.Module):
         var_loss = torch.tensor(0.0, dtype=float).to(x.device)
         output_reg_loss = torch.tensor(0.0, dtype=float).to(x.device)
         interval_drift_loss = torch.tensor(0.0, dtype=float).to(x.device)
+        hypercube_dist_loss = torch.tensor(0.0, dtype=float).to(x.device)
 
         for idx in interval_act_layers:
             acts = layers[idx].curr_task_last_batch
@@ -129,10 +169,28 @@ class IntervalPenalization(nn.Module):
                             upper_bound_reg += diff.sum()
 
                         output_reg_loss += lower_bound_reg.sum().pow(2) + upper_bound_reg.sum().pow(2)
+
+                if self.use_hypercube_dist_loss:
+                    prev_center = (ub + lb) / 2.0
+                    prev_radii  = (ub - lb) / 2.0
+                    
+                    lb_prev_hypercube = prev_center - prev_radii
+                    ub_prev_hypercube = prev_center + prev_radii
+
+                    new_lb, _ = acts_flat.min(dim=0)
+                    new_ub, _ = acts_flat.max(dim=0)
+
+                    non_overlap_mask = (new_lb > ub_prev_hypercube) | (new_ub < lb_prev_hypercube)
+                    new_center = (new_ub + new_lb) / 2.0
+
+                    center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
+
+                    hypercube_dist_loss = center_loss / (prev_radii.mean() + 1e-8)
         loss = (
             loss
             + self.var_scale * var_loss
             + self.output_reg_scale * output_reg_loss
             + self.interval_drift_reg_scale * interval_drift_loss
+            + hypercube_dist_loss
         )
         return loss

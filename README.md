@@ -33,9 +33,9 @@ We received feedback from other researchers that our orthogonality initializatio
 All commands should be run under the project root directory. **The scripts are set up for 4 GPUs** but can be modified for your hardware.
 
 ```bash
-sh experiments/cifar100.sh
-sh experiments/imagenet-r.sh
-sh experiments/domainnet.sh
+bash experiments/cifar100.sh
+bash experiments/imagenet-r.sh
+bash experiments/domainnet.sh
 ```
 
 ## Results

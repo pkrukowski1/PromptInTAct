@@ -19,6 +19,9 @@ N_CLASS=200
 # PLEASE CHANGE THIS!!!
 OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/10-task
 
+# TO RUN LOCALLY
+# OUTDIR=./${DATASET}/10-task
+
 # hard coded inputs
 GPUID='0'
 CONFIG=configs/cifar-100_prompt.yaml
@@ -38,8 +41,8 @@ mkdir -p $OUTDIR
 #    arg 2 = e-prompt pool length
 #    arg 3 = -1 -> shallow, 1 -> deep
 VAR_SCALES=("0.001" "0.01" "0.1")
-OUTPUT_REG_SCALES=("0.1" "1.0" "10.0", "100.0")
-INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0", "100.0")
+OUTPUT_REG_SCALES=("0.1" "1.0" "10.0" "100.0")
+INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
 
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do

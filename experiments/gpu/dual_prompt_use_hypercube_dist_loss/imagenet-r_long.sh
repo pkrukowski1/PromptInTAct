@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DualPrompt_imagenet-r_long
+#SBATCH --job-name=DualPrompt_imagenet-r_long_Hypercube_Dist_Loss
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -51,7 +51,8 @@ for var in "${VAR_SCALES[@]}"; do
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \
-            --interval_drift_reg_scale $drift
+            --interval_drift_reg_scale $drift \
+            --use_hypercube_dist_loss
     done
   done
 done

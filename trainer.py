@@ -134,7 +134,8 @@ class Trainer:
             self.interval_penalization = IntervalPenalization(
                 var_scale=args.var_scale, 
                 output_reg_scale=args.output_reg_scale,
-                interval_drift_reg_scale=args.interval_drift_reg_scale
+                interval_drift_reg_scale=args.interval_drift_reg_scale,
+                use_hypercube_dist_loss=args.use_hypercube_dist_loss
             )
 
     def task_eval(self, t_index, local=False, task='acc'):

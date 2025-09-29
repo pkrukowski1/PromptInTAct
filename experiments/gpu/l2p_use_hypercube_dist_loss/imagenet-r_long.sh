@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DualPrompt_imagenet-r_long
+#SBATCH --job-name=L2P_imagenet-r_long_Hypercube_Dist_Loss
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -30,12 +30,12 @@ OVERWRITE=0
 # process inputs
 mkdir -p $OUTDIR
 
-# DualPrompt
+# L2P++
 #
 # prompt parameter args:
 #    arg 1 = e-prompt pool size (# tasks)
 #    arg 2 = e-prompt pool length
-#    arg 3 = g-prompt pool length
+#    arg 3 = -1 -> shallow, 1 -> deep
 VAR_SCALES=("0.001" "0.01" "0.1")
 OUTPUT_REG_SCALES=("0.1" "1.0" "10.0" "100.0")
 INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
@@ -43,15 +43,16 @@ INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do
     for drift in "${INTERVAL_DRIFT_SCALES[@]}"; do
-        LOGDIR=${OUTDIR}/dual_prompt/var${var}_out${out}_drift${drift}
+        LOGDIR=${OUTDIR}/l2p/var${var}_out${out}_drift${drift}
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-            --learner_type prompt --learner_name DualPrompt \
-            --prompt_param 20 20 6 \
+            --learner_type prompt --learner_name L2P \
+            --prompt_param 30 20 -1 \
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \
-            --interval_drift_reg_scale $drift
+            --interval_drift_reg_scale $drift \
+            --use_hypercube_dist_loss
     done
   done
 done
