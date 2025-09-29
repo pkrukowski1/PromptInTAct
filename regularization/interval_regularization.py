@@ -26,7 +26,6 @@ class IntervalPenalization(nn.Module):
         self.use_hypercube_dist_loss = use_hypercube_dist_loss
 
         self.params_buffer = {}
-        self.data_buffer = set()
 
         self.curr_classifier_head = None
         self.old_classifier_head = None
@@ -67,47 +66,11 @@ class IntervalPenalization(nn.Module):
             for p in self.old_prompt.parameters():
                 p.requires_grad = False
 
-            activation_buffers = {}
-            hook_handles = []
-
-            for idx, layer in enumerate(self.curr_classifier_head):
+            for layer in self.curr_classifier_head:
                 if isinstance(layer, IntervalActivation):
-                    activation_buffers[idx] = []
-
-                    def hook(module, input, output, idx=idx):
-                        activation_buffers[idx].append(output.detach())
-                    
-                    handle = layer.register_forward_hook(hook)
-                    hook_handles.append(handle)
-
-            self.curr_classifier_head.eval()
-
-            with torch.no_grad():
-                for x in self.data_buffer:
-                    x = x.to(next(self.curr_classifier_head.parameters()).device)
-
-                    q, _ = self.feature_extractor(x)
-                    q = q[:,0,:]
-
-                    out, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id-1)
-                    out = out[:,0,:]
-
-                    out = out.view(out.size(0), -1)
-                    out = self.curr_classifier_head(out)
-
-            for idx, layer in enumerate(self.curr_classifier_head):
-                if isinstance(layer, IntervalActivation):
-                    layer.reset_range(activation_buffers[idx])
-
-            for handle in hook_handles:
-                handle.remove()
-
-        self.curr_classifier_head.train()
-        self.data_buffer = set()
+                    layer.reset_range()
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
-
-        self.data_buffer.add(x)
 
         layers = list(self.curr_classifier_head.children())
         interval_act_layers = [i for i, layer in enumerate(layers) if isinstance(layer, IntervalActivation)]

@@ -15,18 +15,19 @@ class IntervalActivation(nn.Module):
     to enforce that activations within this cube remain unchanged when learning 
     new tasks.
 
-    Attributes:
+     Attributes:
         input_shape (tuple or int): Flattened size of input tensor.
         lower_percentile (float): Lower percentile for min bound computation.
         upper_percentile (float): Upper percentile for max bound computation.
+        test_act_buffer (list): Stores activations for percentile computation in eval mode.
         min (torch.Tensor): Lower bound per neuron (updated via reset_range).
         max (torch.Tensor): Upper bound per neuron (updated via reset_range).
         curr_task_last_batch (torch.Tensor): Stores last batch activations during training.
 
     Methods:
         reset_range():
-            Computes per-feature min and max bounds using collected activations.
-            Updates self.min and self.max.
+            Computes per-feature min and max bounds using collected activations
+            from test_act_buffer. Updates self.min and self.max.
         forward(x):
             Computes Leaky ReLU activation, saves batch activations and mask.
     """
@@ -58,33 +59,21 @@ class IntervalActivation(nn.Module):
 
         self.curr_task_last_batch = None
 
-    def reset_range(self, activations: List[torch.Tensor]) -> None:
+    def reset_range(self) -> None:
         """
-        Update the per-neuron activation interval ([min, max]) using collected activations.
-
-        This method computes a robust estimate of the activation range for each neuron 
-        based on a list of activation tensors. It updates `self.min` and `self.max` 
-        either by initializing them (if not already set) or by taking the element-wise 
-        min/max with existing values. Optionally, it logs per-neuron intervals to wandb.
+        Updates the [min, max] hypercube for each neuron using collected activations.
 
         Steps:
-            1. Stack the list of activation tensors into a single [n_samples, d] tensor.
-            2. Sort activations along the sample dimension and select lower/upper percentiles.
-            3. Update `self.min` and `self.max` by element-wise min/max.
-            4. Optionally log per-neuron min, max, and interval size to wandb.
-
-        Args:
-            activations (List[torch.Tensor]): A list of activation tensors for a batch of inputs.
-                Each tensor should have shape [batch_size, num_neurons].
-
-        Side Effects:
-            - Updates `self.min` and `self.max`.
+            1. Concatenates stored activations in test_act_buffer.
+            2. Sorts activations and selects lower and upper percentiles.
+            3. Updates self.min and self.max by taking element-wise min/max.
+            4. Clears the test_act_buffer.
         """
         
-        if len(activations) == 0:
+        if len(self.test_act_buffer) == 0:
             return
 
-        activations = torch.cat(activations, dim=0).to(activations[0].device)  # shape: [n_samples, d]
+        activations = torch.cat(self.test_act_buffer, dim=0)
         sorted_buf, _ = torch.sort(activations, dim=0)
       
         n = sorted_buf.size(0)
@@ -104,6 +93,8 @@ class IntervalActivation(nn.Module):
             self.min = torch.minimum(self.min, min_vals)
             self.max = torch.maximum(self.max, max_vals)
 
+        self.test_act_buffer = []
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -111,6 +102,9 @@ class IntervalActivation(nn.Module):
 
         During training:
             - Stores batch activations in curr_task_last_batch.
+        
+        During evaluation:
+            - Stores activations in test_act_buffer for later percentile computation.
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch, ...).
@@ -122,5 +116,7 @@ class IntervalActivation(nn.Module):
 
         if self.training:
             self.curr_task_last_batch = out        
+        else:
+            self.test_act_buffer.extend(list(out.detach().cpu()))
 
         return out
