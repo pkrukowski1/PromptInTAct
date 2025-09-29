@@ -17,7 +17,7 @@ N_CLASS=345
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task_use_hypercube_dist_loss
 
 # hard coded inputs
 GPUID='0'
