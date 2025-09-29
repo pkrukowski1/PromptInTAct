@@ -58,6 +58,7 @@ class IntervalActivation(nn.Module):
         self.max = None
 
         self.curr_task_last_batch = None
+        self.test_act_buffer = []
 
     def reset_range(self) -> None:
         """
