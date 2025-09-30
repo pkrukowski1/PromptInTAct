@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=L2P_imagenet-r_short
+#SBATCH --job-name=CODA-P_imagenet-r_5_tasks
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -21,7 +21,7 @@ OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/imnet-r_prompt_short.yaml
+CONFIG=configs/imnet-r_prompt_5_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -30,12 +30,12 @@ OVERWRITE=0
 # process inputs
 mkdir -p $OUTDIR
 
-# L2P++
+# CODA-P
 #
 # prompt parameter args:
-#    arg 1 = e-prompt pool size (# tasks)
-#    arg 2 = e-prompt pool length
-#    arg 3 = -1 -> shallow, 1 -> deep
+#    arg 1 = prompt component pool size
+#    arg 2 = prompt length
+#    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
 OUTPUT_REG_SCALES=("0.0")
 INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
@@ -43,15 +43,16 @@ INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do
     for drift in "${INTERVAL_DRIFT_SCALES[@]}"; do
-        LOGDIR=${OUTDIR}/l2p/var${var}_out${out}_drift${drift}
+        LOGDIR=${OUTDIR}/coda-p/var${var}_out${out}_drift${drift}
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-            --learner_type prompt --learner_name L2P \
-            --prompt_param 30 20 -1 \
-            --log_dir $LOGDIR \
-            --var_scale $var \
-            --output_reg_scale $out \
-            --interval_drift_reg_scale $drift
+          --learner_type prompt --learner_name CODAPrompt \
+          --prompt_param 100 8 0.0 \
+          --use_interval_activation \
+          --log_dir $LOGDIR \
+          --var_scale $var \
+          --output_reg_scale $out \
+          --interval_drift_reg_scale $drift
     done
   done
 done

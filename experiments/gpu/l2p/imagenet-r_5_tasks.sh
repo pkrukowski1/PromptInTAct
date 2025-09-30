@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=L2P_imagenet-r_long
+#SBATCH --job-name=L2P_imagenet-r_5_tasks
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -17,11 +17,11 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/20-task
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/imnet-r_prompt_long.yaml
+CONFIG=configs/imnet-r_prompt_5_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 

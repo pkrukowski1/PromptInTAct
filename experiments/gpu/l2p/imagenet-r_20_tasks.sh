@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=L2P_imagenet-r_long_Hypercube_Dist_Loss
+#SBATCH --job-name=L2P_imagenet-r_20_tasks
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -17,11 +17,11 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/20-task_use_hypercube_dist_loss
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/20-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/imnet-r_prompt_long.yaml
+CONFIG=configs/imnet-r_prompt_20_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -51,8 +51,7 @@ for var in "${VAR_SCALES[@]}"; do
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \
-            --interval_drift_reg_scale $drift \
-            --use_hypercube_dist_loss
+            --interval_drift_reg_scale $drift
     done
   done
 done
