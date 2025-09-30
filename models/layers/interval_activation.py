@@ -118,6 +118,6 @@ class IntervalActivation(nn.Module):
         if self.training:
             self.curr_task_last_batch = out        
         else:
-            self.test_act_buffer.extend(list(out.detach().cpu()))
+            self.test_act_buffer.append(out.detach().view(out.size(0), -1))
 
         return out
