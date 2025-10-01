@@ -47,7 +47,7 @@ for var in "${VAR_SCALES[@]}"; do
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name DualPrompt \
-            --prompt_param 5 20 6 \
+            --prompt_param 6 20 6 \
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \
