@@ -43,7 +43,6 @@ INTERVAL_DRIFT_SCALES=("0.0001" "0.001" "0.1")
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do
     for drift in "${INTERVAL_DRIFT_SCALES[@]}"; do
-        python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
         LOGDIR=${OUTDIR}/coda-p/var${var}_out${out}_drift${drift}
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
