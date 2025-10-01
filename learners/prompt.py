@@ -29,7 +29,8 @@ class Prompt(NormalNN):
         logits = logits[:,:self.valid_out_dim]
 
         # ce with heuristic
-        logits[:,:self.last_valid_out_dim] = -float('inf')
+        if not self.dil:
+            logits[:,:self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 

@@ -30,6 +30,7 @@ class NormalNN(nn.Module):
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']
         self.use_interval_activation = learner_config['use_interval_activation']
+        self.dil = learner_config['dil']
 
         # replay memory parameters
         self.memory_size = self.config['memory']

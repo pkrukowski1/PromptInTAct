@@ -59,23 +59,34 @@ class Trainer:
         # load tasks
         class_order = np.arange(num_classes).tolist()
         class_order_logits = np.arange(num_classes).tolist()
-        if self.seed > 0 and args.rand_split:
-            print('=============================================')
-            print('Shuffling....')
-            print('pre-shuffle:' + str(class_order))
-            random.seed(self.seed)
-            random.shuffle(class_order)
-            print('post-shuffle:' + str(class_order))
-            print('=============================================')
-        self.tasks = []
-        self.tasks_logits = []
-        p = 0
-        while p < num_classes and (args.max_task == -1 or len(self.tasks) < args.max_task):
-            inc = args.other_split_size if p > 0 else args.first_split_size
-            self.tasks.append(class_order[p:p+inc])
-            self.tasks_logits.append(class_order_logits[p:p+inc])
-            p += inc
-        self.num_tasks = len(self.tasks)
+        if 'dil' not in args:
+            args.dil = False
+        self.dil = args.dil
+        if self.dil:
+            self.tasks = []
+            self.tasks_logits = []
+            for i in range(args.domain_num):
+                self.tasks.append(class_order)
+                self.tasks_logits.append(class_order_logits)
+            self.num_tasks = len(self.tasks)
+        else:
+            if self.seed > 0 and args.rand_split:
+                print('=============================================')
+                print('Shuffling....')
+                print('pre-shuffle:' + str(class_order))
+                random.seed(self.seed)
+                random.shuffle(class_order)
+                print('post-shuffle:' + str(class_order))
+                print('=============================================')
+            self.tasks = []
+            self.tasks_logits = []
+            p = 0
+            while p < num_classes and (args.max_task == -1 or len(self.tasks) < args.max_task):
+                inc = args.other_split_size if p > 0 else args.first_split_size
+                self.tasks.append(class_order[p:p+inc])
+                self.tasks_logits.append(class_order_logits[p:p+inc])
+                p += inc
+            self.num_tasks = len(self.tasks)
         self.task_names = [str(i+1) for i in range(self.num_tasks)]
 
         # number of tasks to perform
@@ -125,7 +136,8 @@ class Trainer:
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param],
-                        'use_interval_activation': args.use_interval_activation
+                        'use_interval_activation': args.use_interval_activation,
+                        'dil': self.dil
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
@@ -199,7 +211,8 @@ class Trainer:
                 self.learner.model.task_id = i
 
             # add valid class to classifier
-            self.learner.add_valid_output_dim(self.add_dim)
+            if not self.dil or i == 0 :
+                self.learner.add_valid_output_dim(self.add_dim)
 
             # load dataset with memory
             self.train_dataset.append_coreset(only=False)
@@ -294,7 +307,8 @@ class Trainer:
             # load model
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             self.learner.task_count = i 
-            self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
+            if not self.dil or i == 0:
+                self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
             self.learner.pre_steps()
             self.learner.load_model(model_save_dir)
 
