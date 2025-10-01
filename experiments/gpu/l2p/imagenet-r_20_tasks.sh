@@ -38,7 +38,7 @@ mkdir -p $OUTDIR
 #    arg 3 = -1 -> shallow, 1 -> deep
 VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
 OUTPUT_REG_SCALES=("0.0")
-INTERVAL_DRIFT_SCALES=("0.1" "1.0" "10.0" "100.0")
+INTERVAL_DRIFT_SCALES=("0.0001" "0.001" "0.1")
 
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do
