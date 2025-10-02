@@ -12,15 +12,6 @@ import random
 import torchvision.datasets as datasets
 import yaml
 
-def split_images_labels(imgs):
-    # split trainset.imgs in ImageFolder
-    images = []
-    labels = []
-    for item in imgs.imgs:
-        images.append(item[0])
-        labels.append(item[1])
-    return np.array(images), np.array(labels)
-
 class iDataset(data.Dataset):
     
     def __init__(self, root,
@@ -184,8 +175,6 @@ class iDataset(data.Dataset):
         tmp = '    Transforms (if any): '
         fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
         return fmt_str
-
-
 
 class iCIFAR10(iDataset):
     """`CIFAR10 <https://www.cs.toronto.edu/~kriz/cifar.html>`_ Dataset.
@@ -362,188 +351,19 @@ class iIMAGENET_R(iDataset):
     def extra_repr(self) -> str:
         return "Split: {split}".format(**self.__dict__)
 
-class iCUB(iIMAGENET_R):
-    base_folder = 'cub'
+class iDOMAIN_NET(iIMAGENET_R):
+    base_folder = 'DomainNet'
     im_size=224
     nch=3
     def load(self):
-
+        
         # load splits from config file
         if self.train or self.validation:
-            data = datasets.ImageFolder('data/cub/train')
+            data_config = yaml.load(open('dataloaders/splits/domainnet_train.yaml', 'r'), Loader=yaml.Loader)
         else:
-            data = datasets.ImageFolder('data/cub/test')
-        self.data, self.targets = split_images_labels(data)
-
-
-class iDIL_Dataset(data.Dataset):
-    
-    def __init__(self, root,
-                train=True, transform=None,
-                download_flag=False, lab=True, swap_dset = None, 
-                tasks=None, seed=-1, rand_split=False, validation=False, kfolds=5):
-
-        # process rest of args
-        self.root = os.path.expanduser(root)
-        self.transform = transform
-        self.train = train  # training set or test set
-        self.validation = validation
-        self.seed = seed
-        self.t = -1
-        self.tasks = tasks
-        self.download_flag = download_flag
-
-        # load dataset
-        self.load()
-        self.num_classes = len(np.unique(self.targets))
-
-        # remap labels to match task order
-        # c = 0
-        # self.class_mapping = {}
-        # self.class_mapping[-1] = -1
-        # for task in self.tasks:
-        #     for k in task:
-        #         self.class_mapping[k] = c
-        #         c += 1
-
-        # targets as numpy.array
-        self.data = np.asarray(self.data)
-        self.targets = np.asarray(self.targets)
-        self.archive_data = np.asarray(self.archive_data, dtype = object)
-        self.targets = np.asarray(self.archive_targets, dtype = object)
-
-
-        if self.train:
-            self.coreset = (np.zeros(0, dtype=self.data.dtype), np.zeros(0, dtype=self.targets.dtype))
-
-    def __getitem__(self, index, simple = False):
-        """
-        Args:
-            index (int): Index
-        Returns:
-            tuple: (image, target) where target is index of the target class
-        """
-        img_path, target = self.data[index], self.targets[index]
-        img = jpg_image_to_array(img_path)
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        img = Image.fromarray(img)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        return img, target, self.t
-
-    def load_dataset(self, t, train=True):
-        pass
-
-    def append_coreset(self, only=False, interp=False):
-        len_core = len(self.coreset[0])
-        if self.train and (len_core > 0):
-            if only:
-                self.data, self.targets = self.coreset
-            else:
-                len_data = len(self.data)
-                sample_ind = np.random.choice(len_core, len_data)
-                self.data = np.concatenate([self.data, self.coreset[0][sample_ind]], axis=0)
-                self.targets = np.concatenate([self.targets, self.coreset[1][sample_ind]], axis=0)
-
-    def update_coreset(self, coreset_size, seen):
-        num_data_per = coreset_size // len(seen)
-        remainder = coreset_size % len(seen)
-        data = []
-        targets = []
-        
-        # random coreset management; latest classes take memory remainder
-        # coreset selection without affecting RNG state
-        state = np.random.get_state()
-        np.random.seed(self.seed)
-        for k in reversed(seen):
-            mapped_targets = [self.class_mapping[self.targets[i]] for i in range(len(self.targets))]
-            locs = (mapped_targets == k).nonzero()[0]
-            if (remainder > 0) and (len(locs) > num_data_per):
-                num_data_k = num_data_per + 1
-                remainder -= 1
-            else:
-                num_data_k = min(len(locs), num_data_per)
-            locs_chosen = locs[np.random.choice(len(locs), num_data_k, replace=False)]
-            data.append([self.data[loc] for loc in locs_chosen])
-            targets.append([self.targets[loc] for loc in locs_chosen])
-        self.coreset = (np.concatenate(list(reversed(data)), axis=0), np.concatenate(list(reversed(targets)), axis=0))
-        np.random.set_state(state)
-
-    def load(self):
-        pass
-
-    def __len__(self):
-        return len(self.data)
-
-    def __repr__(self):
-        fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
-        fmt_str += '    Number of datapoints: {}\n'.format(self.__len__())
-        tmp = 'train' if self.train is True else 'test'
-        fmt_str += '    Split: {}\n'.format(tmp)
-        fmt_str += '    Root Location: {}\n'.format(self.root)
-        tmp = '    Transforms (if any): '
-        fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
-        return fmt_str
-
-class iDOMAIN_NET(iDIL_Dataset):
-    base_folder = "/shared/sets/datasets/DomainNet"
-    im_size = 224
-    nch = 3
-
-    def load(self):
-        # domains = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch"]
-        domains = ["real", "quickdraw", "painting", "sketch", "infograph", "clipart"]
-
-        # load splits from config file
-        self.archive_data = []
-        self.archive_targets = []
-        self.data = []
-        self.targets = []
-
-        if self.train or self.validation:
-            for domain in domains:
-                data = []
-                target = []
-                image_list = open(os.path.join(self.base_folder, domain, f"{domain}_train.txt")).readlines()
-                for image in image_list:
-                    image_path = os.path.join(self.base_folder, image.split()[0])
-                    data.append(image_path)
-                    self.data.append(image_path)
-                    target.append(int(image.split()[1]))
-                    self.targets.append(int(image.split()[1]))
-                self.archive_data.append(data)
-                self.archive_targets.append(target)
-        else:
-            for domain in domains:
-                data = []
-                target = []
-                image_list = open(os.path.join(self.base_folder, domain, f"{domain}_test.txt")).readlines()
-                for image in image_list:
-                    image_path = os.path.join(self.base_folder, image.split()[0])
-                    data.append(image_path)
-                    self.data.append(image_path)
-                    target.append(int(image.split()[1]))
-                    self.targets.append(int(image.split()[1]))
-                self.archive_data.append(data)
-                self.archive_targets.append(target)
-
-
-    def load_dataset(self, t, train=True):
-        
-        if train:
-            self.data = self.archive_data[t] 
-            self.targets = self.archive_targets[t] 
-        else:
-            self.data    = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
-            self.targets = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
-        self.t = t
-
-
-
+            data_config = yaml.load(open('dataloaders/splits/domainnet_test.yaml', 'r'), Loader=yaml.Loader)
+        self.data = data_config['data']
+        self.targets = data_config['targets']
 
 def jpg_image_to_array(image_path):
     """
