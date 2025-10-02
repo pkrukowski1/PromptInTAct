@@ -47,6 +47,7 @@ for var in "${VAR_SCALES[@]}"; do
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name L2P \
             --prompt_param 30 20 -1 \
+            --use_interval_activation \
             --log_dir $LOGDIR \
             --var_scale $var \
             --output_reg_scale $out \

@@ -47,6 +47,7 @@ for var in "${VAR_SCALES[@]}"; do
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name L2P \
+            --use_interval_activation \
             --prompt_param 30 20 -1 \
             --log_dir $LOGDIR \
             --var_scale $var \
