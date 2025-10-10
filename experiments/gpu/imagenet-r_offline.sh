@@ -1,12 +1,21 @@
 #!/bin/bash
-# Offline (upper bound) training for ImageNet-R
+#SBATCH --job-name=Imagenet-r_offline
+#SBATCH --qos=big
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --partition=dgx
+
+
+
+source activate interval_activation_cl
 
 DATASET=ImageNet_R
 N_CLASS=200
 
-OUTDIR=outputs/${DATASET}/offline
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task_use_hypercube_dist_loss
 GPUID='0'
-CONFIG=configs/imnet-r_ft.yaml
+CONFIG=configs/imnet-r_prompt_5_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 
