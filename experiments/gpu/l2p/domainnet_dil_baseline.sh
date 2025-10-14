@@ -17,7 +17,7 @@ N_CLASS=345
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task_dil
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/6-task_dil
 
 # hard coded inputs
 GPUID='0'
@@ -37,7 +37,7 @@ mkdir -p $OUTDIR
 #    arg 2 = e-prompt pool length
 #    arg 3 = -1 -> shallow, 1 -> deep
 
-LOGDIR=${OUTDIR}/l2p/var${var}_out${out}_drift${drift}
+LOGDIR=${OUTDIR}/l2p/dil_baseline
 mkdir -p $LOGDIR
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
   --learner_type prompt --learner_name L2P \

@@ -37,7 +37,7 @@ mkdir -p $OUTDIR
 #    arg 2 = e-prompt pool length
 #    arg 3 = g-prompt pool length
 
-LOGDIR=${OUTDIR}/dual_prompt/var${var}_out${out}_drift${drift}
+LOGDIR=${OUTDIR}/dual_prompt/dil_baseline
 mkdir -p $LOGDIR
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name DualPrompt \
