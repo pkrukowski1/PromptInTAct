@@ -10,8 +10,9 @@ def load_yaml_to_y(fname):
         data = yaml.safe_load(f)
 
     history = data['history']
-    T = len(history)
-    y = np.zeros((1, T, T))
+    T = len(history)               # number of training steps / tasks
+    R = len(history[0])            # number of runs
+    y = np.zeros((R, T, T))        # allocate full array
 
     def to_float(x):
         while isinstance(x, list):
@@ -23,12 +24,14 @@ def load_yaml_to_y(fname):
         except Exception:
             return 0.0
 
-    for t in range(T):  # after training task t
-        for i in range(t + 1):  # tasks seen so far
-            val = to_float(history[i][t])
-            y[0, t, i] = val
+    for t in range(T):
+        for r in range(R):
+            for i in range(min(t + 1, T)): 
+                val = to_float(history[t][r])
+                y[r, t, i] = val
 
     return y
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
