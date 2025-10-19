@@ -22,7 +22,7 @@ OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/20-task
 # hard coded inputs
 GPUID='0'
 CONFIG=configs/imnet-r_prompt_20_tasks.yaml
-REPEAT=1
+REPEAT=5
 OVERWRITE=0
 
 ###############################################################
@@ -36,9 +36,9 @@ mkdir -p $OUTDIR
 #    arg 1 = prompt component pool size
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
-VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
+VAR_SCALES=("0.1")
 OUTPUT_REG_SCALES=("0.0")
-INTERVAL_DRIFT_SCALES=("0.0001" "0.001" "0.1")
+INTERVAL_DRIFT_SCALES=("0.1")
 
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do
