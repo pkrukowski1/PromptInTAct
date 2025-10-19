@@ -1,3 +1,5 @@
+import numpy as np
+
 # incremental forgetting metric
 # ASSUMES EQUAL TASK SIZE (e.g., classes per task)
 # 
