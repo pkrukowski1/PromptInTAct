@@ -41,6 +41,11 @@ bash experiments/domainnet.sh
 ## Results
 Results will be saved in a folder named `outputs/`. To get the final average accuracy, retrieve the final number in the file `outputs/**/results-acc/global.yaml`
 
+One-liner to read:
+```bash
+for f in */results-acc/global.yaml; do echo -n "$f: "; awk '/^mean:/{flag=1;next}/^--/{flag=0}flag && /^\-/{val=$2}END{print val}' "$f"; done
+```
+
 ## Ready to create your next method?
 Create your new prompting method in `models/zoo.py`, which will require you to create a new class in `learners/prompt.py` as well. Hopefully, you can create your next method while only modifying these two files! I also recommend you develop with the ImageNet-R benchmark and use fewer epochs for faster results. **Cannot wait to see what method you develop!**
 
