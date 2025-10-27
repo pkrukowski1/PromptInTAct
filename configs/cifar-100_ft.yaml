@@ -2,9 +2,9 @@ dataset: CIFAR100
 first_split_size: 10
 other_split_size: 10
 schedule:
-- 20
+- 2
 schedule_type: cosine
-batch_size: 64
+batch_size: 1
 optimizer: Adam
 lr: 0.00005
 momentum: 0.9

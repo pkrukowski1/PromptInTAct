@@ -353,7 +353,7 @@ class ViTZoo(nn.Module):
 
         # get last layer with a potential interval activation function
         self.classifier = nn.Sequential(
-            IntervalActivation(768) if use_interval_activation else nn.Identity(),
+            IntervalActivation(768, use_non_linear_transform=False),
             nn.Linear(768, num_classes)
         )
        

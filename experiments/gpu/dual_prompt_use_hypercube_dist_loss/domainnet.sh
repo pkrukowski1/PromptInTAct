@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DualPrompt_domainnet_Hypercube_Dist_Loss
+#SBATCH --job-name=DualPrompt_domainnet_dil
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -17,11 +17,11 @@ N_CLASS=345
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/5-task_use_hypercube_dist_loss
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/6-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/domainnet_prompt.yaml
+CONFIG=configs/domainnet_prompt_dil.yaml
 REPEAT=1
 OVERWRITE=0
 
@@ -36,9 +36,9 @@ mkdir -p $OUTDIR
 #    arg 1 = e-prompt pool size (# tasks)
 #    arg 2 = e-prompt pool length
 #    arg 3 = g-prompt pool length
-VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
-OUTPUT_REG_SCALES=("0.0001" "0.001" "0.1")
-INTERVAL_DRIFT_SCALES=("0.0001" "0.001" "0.1")
+VAR_SCALES=("0.01")
+OUTPUT_REG_SCALES=("0.0001" "0.001" "0.01" "0.1")
+INTERVAL_DRIFT_SCALES=("0.001")
 
 for var in "${VAR_SCALES[@]}"; do
   for out in "${OUTPUT_REG_SCALES[@]}"; do

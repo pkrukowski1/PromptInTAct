@@ -15,11 +15,11 @@ N_CLASS=345
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/6-task_dil
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/6-task_baseline
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/domainnet_prompt.yaml
+CONFIG=configs/domainnet_prompt_dil.yaml
 REPEAT=3
 OVERWRITE=0
 
