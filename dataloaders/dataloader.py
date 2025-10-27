@@ -12,6 +12,15 @@ import random
 import torchvision.datasets as datasets
 import yaml
 
+def split_images_labels(imgs):
+    # split trainset.imgs in ImageFolder
+    images = []
+    labels = []
+    for item in imgs.imgs:
+        images.append(item[0])
+        labels.append(item[1])
+    return np.array(images), np.array(labels)
+
 class iDataset(data.Dataset):
     
     def __init__(self, root,
@@ -175,6 +184,8 @@ class iDataset(data.Dataset):
         tmp = '    Transforms (if any): '
         fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
         return fmt_str
+
+
 
 class iCIFAR10(iDataset):
     """`CIFAR10 <https://www.cs.toronto.edu/~kriz/cifar.html>`_ Dataset.
@@ -351,19 +362,19 @@ class iIMAGENET_R(iDataset):
     def extra_repr(self) -> str:
         return "Split: {split}".format(**self.__dict__)
 
-# class iDOMAIN_NET(iIMAGENET_R):
-#     base_folder = 'DomainNet'
-#     im_size=224
-#     nch=3
-#     def load(self):
-        
-#         # load splits from config file
-#         if self.train or self.validation:
-#             data_config = yaml.load(open('dataloaders/splits/domainnet_train.yaml', 'r'), Loader=yaml.Loader)
-#         else:
-#             data_config = yaml.load(open('dataloaders/splits/domainnet_test.yaml', 'r'), Loader=yaml.Loader)
-#         self.data = data_config['data']
-#         self.targets = data_config['targets']
+class iCUB(iIMAGENET_R):
+    base_folder = 'cub'
+    im_size=224
+    nch=3
+    def load(self):
+
+        # load splits from config file
+        if self.train or self.validation:
+            data = datasets.ImageFolder('data/cub/train')
+        else:
+            data = datasets.ImageFolder('data/cub/test')
+        self.data, self.targets = split_images_labels(data)
+
 
 class iDIL_Dataset(data.Dataset):
     
@@ -479,27 +490,24 @@ class iDIL_Dataset(data.Dataset):
         return fmt_str
 
 class iDOMAIN_NET(iDIL_Dataset):
-    base_folder = "/shared/sets/datasets/DomainNet"
-    im_size = 224
-    nch = 3
-
+    base_folder = 'DomainNet'
+    im_size=224
+    nch=3
     def load(self):
-        # domains = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch"]
+        # domains = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch", ]
         domains = ["real", "quickdraw", "painting", "sketch", "infograph", "clipart"]
-
         # load splits from config file
         self.archive_data = []
         self.archive_targets = []
         self.data = []
         self.targets = []
-
         if self.train or self.validation:
             for domain in domains:
                 data = []
                 target = []
-                image_list = open(os.path.join(self.base_folder, domain, f"{domain}_train.txt")).readlines()
+                image_list = open(os.path.join('/shared/sets/datasets/DomainNet',domain,domain+'_train.txt')).readlines()
                 for image in image_list:
-                    image_path = os.path.join(self.base_folder, image.split()[0])
+                    image_path = os.path.join('/shared/sets/datasets/DomainNet', image.split()[0])
                     data.append(image_path)
                     self.data.append(image_path)
                     target.append(int(image.split()[1]))
@@ -510,16 +518,15 @@ class iDOMAIN_NET(iDIL_Dataset):
             for domain in domains:
                 data = []
                 target = []
-                image_list = open(os.path.join(self.base_folder, domain, f"{domain}_test.txt")).readlines()
+                image_list = open(os.path.join('/shared/sets/datasets/DomainNet',domain,domain+'_test.txt')).readlines()
                 for image in image_list:
-                    image_path = os.path.join(self.base_folder, image.split()[0])
+                    image_path = os.path.join('/shared/sets/datasets/DomainNet', image.split()[0])
                     data.append(image_path)
                     self.data.append(image_path)
                     target.append(int(image.split()[1]))
                     self.targets.append(int(image.split()[1]))
                 self.archive_data.append(data)
                 self.archive_targets.append(target)
-
 
     def load_dataset(self, t, train=True):
         
@@ -530,6 +537,9 @@ class iDOMAIN_NET(iDIL_Dataset):
             self.data    = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
             self.targets = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
         self.t = t
+
+
+
 
 def jpg_image_to_array(image_path):
     """

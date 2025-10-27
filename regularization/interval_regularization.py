@@ -1,6 +1,5 @@
 from copy import deepcopy, copy
 from typing import Union
-from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -70,15 +69,17 @@ class IntervalPenalization(nn.Module):
                 if isinstance(layer, IntervalActivation):
                     layer.reset_range()
                     
-    def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, loss: torch.Tensor, n_past_outputs: int = None) -> torch.Tensor:
 
         layers = list(self.curr_classifier_head.children())
         interval_act_layers = [i for i, layer in enumerate(layers) if isinstance(layer, IntervalActivation)]
 
-        var_loss = torch.tensor(0.0, dtype=float).to(x.device)
-        output_reg_loss = torch.tensor(0.0, dtype=float).to(x.device)
-        interval_drift_loss = torch.tensor(0.0, dtype=float).to(x.device)
-        hypercube_dist_loss = torch.tensor(0.0, dtype=float).to(x.device)
+        zero = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+        var_loss = zero.clone()
+        output_reg_loss = zero.clone()
+        interval_drift_loss = zero.clone()
+        hypercube_dist_loss = zero.clone()
+
 
         for idx in interval_act_layers:
             acts = layers[idx].curr_task_last_batch
@@ -131,7 +132,7 @@ class IntervalPenalization(nn.Module):
                             lower_bound_reg += diff.sum()
                             upper_bound_reg += diff.sum()
 
-                        output_reg_loss += lower_bound_reg.sum().pow(2) + upper_bound_reg.sum().pow(2)
+                        output_reg_loss += lower_bound_reg.mean().pow(2) + upper_bound_reg.mean().pow(2)
 
                 if self.use_hypercube_dist_loss:
                     prev_center = (ub + lb) / 2.0
@@ -148,7 +149,7 @@ class IntervalPenalization(nn.Module):
 
                     center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
 
-                    hypercube_dist_loss = center_loss / (prev_radii.mean() + 1e-8)
+                    hypercube_dist_loss += center_loss / (prev_radii.mean() + 1e-8)
         loss = (
             loss
             + self.var_scale * var_loss

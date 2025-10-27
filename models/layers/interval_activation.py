@@ -36,6 +36,7 @@ class IntervalActivation(nn.Module):
         input_shape: tuple,
         lower_percentile: float = 0.05,
         upper_percentile: float = 0.95,
+        use_non_linear_transform: bool = True
     ) -> None:
         """
         Initializes the IntervalActivation layer.
@@ -53,7 +54,8 @@ class IntervalActivation(nn.Module):
         self.input_shape = np.prod(input_shape)
         self.lower_percentile = lower_percentile
         self.upper_percentile = upper_percentile
-        
+        self.use_non_linear_transform = use_non_linear_transform
+
         self.min = None
         self.max = None
 
@@ -114,6 +116,9 @@ class IntervalActivation(nn.Module):
             torch.Tensor: Activated tensor of shape (batch, flattened input_shape).
         """
         out = x.view(x.shape[0], -1)
+
+        if self.use_non_linear_transform:
+            out = F.leaky_relu(out)
 
         if self.training:
             self.curr_task_last_batch = out        

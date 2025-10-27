@@ -1,6 +1,6 @@
 dataset: DomainNet
-first_split_size: 69
-other_split_size: 69
+first_split_size: 345
+other_split_size: 0
 schedule:
 - 10
 schedule_type: cosine
@@ -12,7 +12,7 @@ weight_decay: 0
 model_type: zoo
 model_name: vit_pt_imnet
 max_task: -1
-dataroot: data
+dataroot: shared/sets/datasets
 workers: 1
 validation: False
 train_aug: True
@@ -22,4 +22,4 @@ output_reg_scale: 1.0
 interval_drift_reg_scale: 1.0
 use_hypercube_dist_loss: True
 domain_num: 6
-dil: False
+dil: True
