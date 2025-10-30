@@ -124,13 +124,13 @@ class IntervalPenalization(nn.Module):
                             weight_diff_neg = torch.relu(-weight_diff)
 
                             # Reduce to scalar so it matches lower_bound_reg
-                            lower_bound_reg += (lb @ weight_diff_pos.T - ub @ weight_diff_neg.T).sum()
-                            upper_bound_reg += (ub @ weight_diff_pos.T - lb @ weight_diff_neg.T).sum()
+                            lower_bound_reg += (lb @ weight_diff_pos.T - ub @ weight_diff_neg.T).mean()
+                            upper_bound_reg += (ub @ weight_diff_pos.T - lb @ weight_diff_neg.T).mean()
 
                         elif "bias" in name:
                             diff = p - prev_param
-                            lower_bound_reg += diff.sum()
-                            upper_bound_reg += diff.sum()
+                            lower_bound_reg += diff.mean()
+                            upper_bound_reg += diff.mean()
 
                         output_reg_loss += lower_bound_reg.mean().pow(2) + upper_bound_reg.mean().pow(2)
 
