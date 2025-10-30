@@ -47,7 +47,7 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
             transforms.Normalize(dset_mean, dset_std),
                             ])
     else:
-        if dataset.startswith('ImageNet') or dataset == 'DomainNet':
+        if dataset.startswith('ImageNet') or dataset == 'DIL_ImageNet_R' or dataset == 'DomainNet':
             transform_list.extend([
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
