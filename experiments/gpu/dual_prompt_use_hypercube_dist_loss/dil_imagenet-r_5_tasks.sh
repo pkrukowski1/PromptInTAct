@@ -37,7 +37,7 @@ mkdir -p $OUTDIR
 #    arg 2 = e-prompt pool length
 #    arg 3 = g-prompt pool length
 VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
-OUTPUT_REG_SCALES=("0.0")
+OUTPUT_REG_SCALES=("0.0001", "0.001", "0.01", "0.1")
 INTERVAL_DRIFT_SCALES=("0.0001" "0.001" "0.1")
 
 for var in "${VAR_SCALES[@]}"; do
