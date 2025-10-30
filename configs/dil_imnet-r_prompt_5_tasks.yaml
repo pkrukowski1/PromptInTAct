@@ -1,6 +1,6 @@
 dataset: DIL_ImageNet_R
-first_split_size: 40
-other_split_size: 40
+first_split_size: 200
+other_split_size: 0
 schedule:
 - 50
 schedule_type: cosine
