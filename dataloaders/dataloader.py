@@ -539,6 +539,78 @@ class iDOMAIN_NET(iDIL_Dataset):
         self.t = t
 
 
+class iDIL_IMAGENET_R(iDIL_Dataset):
+    base_folder = 'imagenet-r'
+    im_size=224
+    nch=3
+    
+    def load(self):
+        # Define domain types based on ImageNet-R's domain structure
+        # ImageNet-R contains images from different artistic domains/styles
+        #["art", "cartoon", "deviantart", "embroidery", "graffiti", 
+        # "graphic", "misc", "origami", "painting", "sculpture", 
+        # "sketch", "sticker", "tattoo", "toy", "videogame"]
+        domains = ["embroidery", "origami", "painting", "sculpture", "toy"]
+        
+        # load splits from config file
+        self.archive_data = []
+        self.archive_targets = []
+        self.data = []
+        self.targets = []
+        
+        if self.train or self.validation:
+            data_config = yaml.load(open('dataloaders/splits/imagenet-r_train.yaml', 'r'), Loader=yaml.Loader)
+        else:
+            data_config = yaml.load(open('dataloaders/splits/imagenet-r_test.yaml', 'r'), Loader=yaml.Loader)
+        
+        all_data = data_config['data']
+        all_targets = data_config['targets']
+        
+        # Organize data by domain based on filename patterns
+        for domain in domains:
+            data = []
+            target = []
+            for i, image_path in enumerate(all_data):
+                filename = os.path.basename(image_path)
+                if filename.startswith(domain + '_'):
+                    data.append(image_path)
+                    self.data.append(image_path)
+                    target.append(all_targets[i])
+                    self.targets.append(all_targets[i])
+            
+            # Only add domains that have data
+            if len(data) > 0:
+                self.archive_data.append(data)
+                self.archive_targets.append(target)
+    
+    def load_dataset(self, t, train=True):
+        
+        if train:
+            self.data = self.archive_data[t] 
+            self.targets = self.archive_targets[t] 
+        else:
+            self.data = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
+            self.targets = np.concatenate([self.archive_targets[s] for s in range(t+1)], axis=0)
+        self.t = t
+    
+    def __getitem__(self, index, simple = False):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is index of the target class
+        """
+        img_path, target = self.data[index], self.targets[index]
+        img = jpg_image_to_array(img_path)
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, target, self.t
 
 
 def jpg_image_to_array(image_path):
