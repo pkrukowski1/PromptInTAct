@@ -37,7 +37,7 @@ mkdir -p $OUTDIR
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 VAR_SCALES=("0.1")
-OUTPUT_REG_SCALES=("0.0001", "0.001", "0.01", "0.1")
+OUTPUT_REG_SCALES=("0.0001" "0.001" "0.01" "0.1")
 INTERVAL_DRIFT_SCALES=("0.1")
 
 for var in "${VAR_SCALES[@]}"; do
