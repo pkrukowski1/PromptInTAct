@@ -544,18 +544,6 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
     base_folder = 'imagenet-r'
     im_size=224
     nch=3
-    
-    def get_trans_train(args):
-        return transforms.Compose(
-            [transforms.RandomHorizontalFlip(0.5),
-            transforms.ToTensor()]
-    )
-        
-    def get_trans_test(args):
-        return transforms.Compose(
-            [transforms.CenterCrop(224),
-            transforms.ToTensor()]
-    )
 
     def load(self):
         # Domain order aligned with reference.py:SequentialImageNet_R
@@ -600,11 +588,9 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
         if train:
             self.data = self.archive_data[t] 
             self.targets = self.archive_targets[t] 
-            self.transform = self.get_trans_train()
         else:
             self.data = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
             self.targets = np.concatenate([self.archive_targets[s] for s in range(t+1)], axis=0)
-            self.transform = self.get_trans_test()
         self.t = t
     
     def __getitem__(self, index, simple = False):
