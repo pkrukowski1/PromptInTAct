@@ -547,16 +547,13 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
     
     def get_trans_train(args):
         return transforms.Compose(
-            [transforms.Resize(-1),
-            transforms.RandomCrop(224),
-            transforms.RandomHorizontalFlip(0.5),
+            [transforms.RandomHorizontalFlip(0.5),
             transforms.ToTensor()]
     )
         
     def get_trans_test(args):
         return transforms.Compose(
-            [transforms.Resize(-1),
-            transforms.CenterCrop(224),
+            [transforms.CenterCrop(224),
             transforms.ToTensor()]
     )
 
