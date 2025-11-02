@@ -10,6 +10,7 @@ import torch.utils.data as data
 from .utils import download_url, check_integrity
 import random
 import torchvision.datasets as datasets
+import torchvision.transforms as transforms
 import yaml
 
 def split_images_labels(imgs):
@@ -544,13 +545,27 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
     im_size=224
     nch=3
     
+    def get_trans_train(args):
+        return transforms.Compose(
+            [transforms.Resize(args.resize_train),
+            transforms.RandomCrop(224),
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.ToTensor()]
+    )
+        
+    def get_trans_test(args):
+        return transforms.Compose(
+            [transforms.Resize(args.resize_test),
+            transforms.CenterCrop(224),
+            transforms.ToTensor()]
+    )
+
     def load(self):
-        # Define domain types based on ImageNet-R's domain structure
-        # ImageNet-R contains images from different artistic domains/styles
-        #["art", "cartoon", "deviantart", "embroidery", "graffiti", 
-        # "graphic", "misc", "origami", "painting", "sculpture", 
-        # "sketch", "sticker", "tattoo", "toy", "videogame"]
-        domains = ["embroidery", "origami", "painting", "sculpture", "toy"]
+        # Domain order aligned with reference.py:SequentialImageNet_R
+        domains = ['art', 'cartoon', 'deviantart', 'graffiti', 'embroidery',
+                   'graphic', 'origami', 'painting', 'misc',
+                   'sticker', 'sculpture', 'sketch', 'tattoo', 'toy',
+                   'videogame']
         
         # load splits from config file
         self.archive_data = []
@@ -588,9 +603,11 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
         if train:
             self.data = self.archive_data[t] 
             self.targets = self.archive_targets[t] 
+            self.transform = self.get_trans_train()
         else:
             self.data = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
             self.targets = np.concatenate([self.archive_targets[s] for s in range(t+1)], axis=0)
+            self.transform = self.get_trans_test()
         self.t = t
     
     def __getitem__(self, index, simple = False):
