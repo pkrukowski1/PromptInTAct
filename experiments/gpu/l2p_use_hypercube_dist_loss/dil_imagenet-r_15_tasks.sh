@@ -1,0 +1,58 @@
+#!/bin/bash
+#SBATCH --job-name=L2P_dil_imagenet-r_15_tasks_Hypercube_Dist_Loss
+#SBATCH --qos=big
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --partition=dgx
+
+
+source activate interval_activation_cl
+
+# bash experiments/imagenet-r.sh
+# experiment settings
+DATASET=DIL_ImageNet_R
+N_CLASS=200
+
+# save directory
+# PLEASE CHANGE THIS!!!
+OUTDIR=/shared/results/pkrukowski/IntervalActivationPromptCL/${DATASET}/15-task_use_hypercube_dist_loss
+
+# hard coded inputs
+GPUID='0'
+CONFIG=configs/dil_imnet-r_prompt_15_tasks.yaml
+REPEAT=1
+OVERWRITE=0
+
+###############################################################
+
+# process inputs
+mkdir -p $OUTDIR
+
+# L2P++
+#
+# prompt parameter args:
+#    arg 1 = e-prompt pool size (# tasks)
+#    arg 2 = e-prompt pool length
+#    arg 3 = -1 -> shallow, 1 -> deep
+VAR_SCALES=("0.01")
+OUTPUT_REG_SCALES=("0.0001" "0.001" "0.01" "0.1")
+INTERVAL_DRIFT_SCALES=("0.1")
+
+for var in "${VAR_SCALES[@]}"; do
+  for out in "${OUTPUT_REG_SCALES[@]}"; do
+    for drift in "${INTERVAL_DRIFT_SCALES[@]}"; do
+        LOGDIR=${OUTDIR}/l2p/var${var}_out${out}_drift${drift}
+        mkdir -p $LOGDIR
+        python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+            --learner_type prompt --learner_name L2P \
+            --prompt_param 30 20 -1 \
+            --use_interval_activation \
+            --log_dir $LOGDIR \
+            --var_scale $var \
+            --output_reg_scale $out \
+            --interval_drift_reg_scale $drift \
+            --use_hypercube_dist_loss
+    done
+  done
+done
