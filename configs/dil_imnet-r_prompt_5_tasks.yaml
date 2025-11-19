@@ -17,9 +17,9 @@ workers: 1
 validation: False
 train_aug: True
 rand_split: True
-var_scale: 0.01
-output_reg_scale: 1.0
-interval_drift_reg_scale: 1.0
-use_hypercube_dist_loss: True
+var_loss_scale: 0.01
+internal_repr_drift_loss_scale: 1.0
+feature_loss_scale: 1.0
+use_align_loss: True
 domain_num: 5
 dil: True

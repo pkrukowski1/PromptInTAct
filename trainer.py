@@ -149,10 +149,10 @@ class Trainer:
 
         if args.use_interval_activation:
             self.interval_penalization = IntervalPenalization(
-                var_scale=args.var_scale, 
-                output_reg_scale=args.output_reg_scale,
-                interval_drift_reg_scale=args.interval_drift_reg_scale,
-                use_hypercube_dist_loss=args.use_hypercube_dist_loss
+                var_loss_scale=args.var_loss_scale, 
+                internal_repr_drift_loss_scale=args.internal_repr_drift_loss_scale,
+                feature_loss_scale=args.feature_loss_scale,
+                use_align_loss=args.use_align_loss
             )
 
     def task_eval(self, t_index, local=False, task='acc'):

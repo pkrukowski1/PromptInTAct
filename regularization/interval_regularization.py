@@ -10,19 +10,19 @@ from models.zoo import L2P, DualPrompt, CodaPrompt
 class IntervalPenalization(nn.Module):
 
     def __init__(self,
-            var_scale: float = 0.01,
-            output_reg_scale: float = 1.0,
-            interval_drift_reg_scale: float = 1.0,
-            use_hypercube_dist_loss: bool = True
+            var_loss_scale: float = 0.01,
+            internal_repr_drift_loss_scale: float = 1.0,
+            feature_loss_scale: float = 1.0,
+            use_align_loss: bool = True
         ) -> None:
         
         super().__init__()
         self.task_id = None
 
-        self.var_scale = var_scale
-        self.output_reg_scale = output_reg_scale
-        self.interval_drift_reg_scale = interval_drift_reg_scale
-        self.use_hypercube_dist_loss = use_hypercube_dist_loss
+        self.var_loss_scale = var_loss_scale
+        self.internal_repr_drift_loss_scale = internal_repr_drift_loss_scale
+        self.feature_loss_scale = feature_loss_scale
+        self.use_align_loss = use_align_loss
 
         self.params_buffer = {}
 
@@ -134,7 +134,7 @@ class IntervalPenalization(nn.Module):
 
                         output_reg_loss += lower_bound_reg.mean().pow(2) + upper_bound_reg.mean().pow(2)
 
-                if self.use_hypercube_dist_loss:
+                if self.use_align_loss:
                     prev_center = (ub + lb) / 2.0
                     prev_radii  = (ub - lb) / 2.0
                     
@@ -152,9 +152,9 @@ class IntervalPenalization(nn.Module):
                     hypercube_dist_loss += center_loss / (prev_radii.mean() + 1e-8)
         loss = (
             loss
-            + self.var_scale * var_loss
-            + self.output_reg_scale * output_reg_loss
-            + self.interval_drift_reg_scale * interval_drift_loss
+            + self.var_loss_scale * var_loss
+            + self.internal_repr_drift_loss_scale * output_reg_loss
+            + self.feature_loss_scale * interval_drift_loss
             + hypercube_dist_loss
         )
         return loss
