@@ -11,25 +11,18 @@ class IntervalActivation(nn.Module):
     IntervalActivation layer for preserving learned representations within a hypercube.
 
     This layer applies a Leaky ReLU activation and tracks the range of activations 
-    across batches. It defines a [lb, ub] hypercube per neuron, which can be used 
-    to enforce that activations within this cube remain unchanged when learning 
-    new tasks.
+    across batches. It defines a [min, max] hypercube per neuron, which can be used 
+    to enforce that activations remain within these bounds when learning new tasks.
 
-     Attributes:
-        input_shape (tuple or int): Flattened size of input tensor.
+    Attributes:
+        input_shape (int): Flattened size of the input tensor.
         lower_percentile (float): Lower percentile for min bound computation.
         upper_percentile (float): Upper percentile for max bound computation.
-        test_act_buffer (list): Stores activations for percentile computation in eval mode.
-        min (torch.Tensor): Lower bound per neuron (updated via reset_range).
-        max (torch.Tensor): Upper bound per neuron (updated via reset_range).
-        curr_task_last_batch (torch.Tensor): Stores last batch activations during training.
-
-    Methods:
-        reset_range():
-            Computes per-feature min and max bounds using collected activations
-            from test_act_buffer. Updates self.min and self.max.
-        forward(x):
-            Computes Leaky ReLU activation, saves batch activations and mask.
+        use_non_linear_transform (bool): Whether to apply Leaky ReLU activation.
+        test_act_buffer (List[torch.Tensor]): Stores activations for percentile computation in eval mode.
+        min (Optional[torch.Tensor]): Lower bound per neuron (updated via reset_range).
+        max (Optional[torch.Tensor]): Upper bound per neuron (updated via reset_range).
+        curr_task_last_batch (Optional[torch.Tensor]): Stores last batch activations during training.
     """
 
     def __init__(self,
@@ -42,9 +35,10 @@ class IntervalActivation(nn.Module):
         Initializes the IntervalActivation layer.
 
         Args:
-            input_shape (tuple): Shape of the input tensor.
+            input_shape (Tuple[int, ...]): Shape of the input tensor.
             lower_percentile (float, optional): Lower percentile for min bound. Defaults to 0.05.
             upper_percentile (float, optional): Upper percentile for max bound. Defaults to 0.95.
+            use_non_linear_transform (bool, optional): Whether to apply Leaky ReLU activation. Defaults to True.
         """
 
         super().__init__()
@@ -64,13 +58,13 @@ class IntervalActivation(nn.Module):
 
     def reset_range(self) -> None:
         """
-        Updates the [min, max] hypercube for each neuron using collected activations.
+        Updates the [min, max] hypercube for each neuron using stored activations.
 
         Steps:
-            1. Concatenates stored activations in test_act_buffer.
-            2. Sorts activations and selects lower and upper percentiles.
-            3. Updates self.min and self.max by taking element-wise min/max.
-            4. Clears the test_act_buffer.
+            1. Concatenate stored activations in test_act_buffer.
+            2. Sort activations and select lower and upper percentiles.
+            3. Update self.min and self.max by element-wise min/max.
+            4. Clear the test_act_buffer.
         """
         
         if len(self.test_act_buffer) == 0:
@@ -101,7 +95,7 @@ class IntervalActivation(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Computes activation for input x.
+        Computes activations for input x.
 
         During training:
             - Stores batch activations in curr_task_last_batch.
@@ -113,7 +107,7 @@ class IntervalActivation(nn.Module):
             x (torch.Tensor): Input tensor of shape (batch, ...).
 
         Returns:
-            torch.Tensor: Activated tensor of shape (batch, flattened input_shape).
+            torch.Tensor: Activated tensor of shape (batch, input_shape).
         """
         out = x.view(x.shape[0], -1)
 
