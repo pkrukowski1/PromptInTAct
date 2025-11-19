@@ -3,7 +3,7 @@
 **Authors**: Patryk Krukowski, Jan Miksa, Piotr Helm, Jacek Tabor, Paweł Wawrzyński, Przemysław Spurek  
 *GMUM — Jagiellonian University*
 
-![Teaser](./imgs/intact_prompt.png)
+![Teaser](imgs/intact_prompt.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
