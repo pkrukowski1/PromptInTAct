@@ -3,8 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 
 import numpy as np
-from typing import List
-
 
 class IntervalActivation(nn.Module):
     """
