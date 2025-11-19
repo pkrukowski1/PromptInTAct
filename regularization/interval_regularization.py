@@ -8,6 +8,28 @@ from models.layers.interval_activation import IntervalActivation
 from models.zoo import L2P, DualPrompt, CodaPrompt
 
 class IntervalPenalization(nn.Module):
+    """
+    Loss module for usage of InTAct.
+
+    This module penalizes:
+        - Variance within interval activations of the current task.
+        - Drift in internal representations between tasks.
+        - Feature-level drift.
+        - Misalignment of new representations relative to previous interval bounds.
+
+    Attributes:
+        task_id (int | None): Current task index.
+        var_loss_scale (float): Scale factor for variance regularization loss.
+        internal_repr_drift_loss_scale (float): Scale factor for output / weight drift loss.
+        feature_loss_scale (float): Scale factor for internal representation drift loss.
+        use_align_loss (bool): Whether to apply center-alignment loss for activations.
+        params_buffer (dict): Stores cloned parameters from previous task for regularization.
+        curr_classifier_head (nn.Sequential | None): Current task classifier head.
+        old_classifier_head (nn.Sequential | None): Classifier head from previous task (frozen).
+        feature_extractor (nn.Sequential | None): Shared feature extractor.
+        prompt (Union[CodaPrompt, L2P, DualPrompt] | None): Current prompt module.
+        old_prompt (Union[CodaPrompt, L2P, DualPrompt] | None): Previous task prompt module (frozen).
+    """
 
     def __init__(self,
             var_loss_scale: float = 0.01,
@@ -15,6 +37,15 @@ class IntervalPenalization(nn.Module):
             feature_loss_scale: float = 1.0,
             use_align_loss: bool = True
         ) -> None:
+        """
+        Initializes IntervalPenalization with specified loss scales.
+
+        Args:
+            var_loss_scale (float, optional): Scale factor for variance loss. Defaults to 0.01.
+            internal_repr_drift_loss_scale (float, optional): Scale factor for output / weight drift loss. Defaults to 1.0.
+            feature_loss_scale (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
+            use_align_loss (bool, optional): Whether to include activation center alignment loss. Defaults to True.
+        """
         
         super().__init__()
         self.task_id = None
@@ -32,7 +63,14 @@ class IntervalPenalization(nn.Module):
 
         self.prompt = None
 
-    def detach_interval_last_batches(self, curr_classifier_head):
+    def detach_interval_last_batches(self, curr_classifier_head: nn.Sequential) -> None:
+        """
+        Clears the stored last batch activations in all IntervalActivation layers
+        of the current classifier head.
+
+        Args:
+            curr_classifier_head (nn.Sequential): Classifier head containing IntervalActivation layers.
+        """
         layers = list(curr_classifier_head.children())
         for layer in layers:
             if isinstance(layer, IntervalActivation):
@@ -40,8 +78,25 @@ class IntervalPenalization(nn.Module):
                     layer.curr_task_last_batch = []
 
 
-    def setup_task(self, task_id: int, curr_classifier_head: nn.Sequential, 
-                   feature_extractor: nn.Sequential, prompt: Union[CodaPrompt,L2P,DualPrompt]) -> None:
+    def setup_task(
+        self,
+        task_id: int,
+        curr_classifier_head: nn.Sequential,
+        feature_extractor: nn.Sequential,
+        prompt: Union[CodaPrompt, L2P, DualPrompt]
+    ) -> None:
+        """
+        Sets up the penalization module for the current task.
+
+        Clones previous task parameters and prompts, freezes them, and resets
+        interval activation bounds for the current classifier head.
+
+        Args:
+            task_id (int): Index of the current task.
+            curr_classifier_head (nn.Sequential): Classifier head for current task.
+            feature_extractor (nn.Sequential): Shared feature extractor (frozen).
+            prompt (CodaPrompt | L2P | DualPrompt): Prompt module for the current task.
+        """
 
         self.task_id = task_id
         self.curr_classifier_head = curr_classifier_head
@@ -69,7 +124,23 @@ class IntervalPenalization(nn.Module):
                 if isinstance(layer, IntervalActivation):
                     layer.reset_range()
                     
-    def forward(self, x: torch.Tensor, loss: torch.Tensor, n_past_outputs: int = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the interval-based penalization loss and adds it to the task loss.
+
+        Loss components:
+            - Variance loss: Encourages consistent activations within a batch.
+            - Output regularization: Penalizes changes in weights and biases relative to previous task.
+            - Interval drift loss: Penalizes deviations of current activations from previous task outputs.
+            - Alignment loss: Penalizes shift in activation centers relative to previous interval bounds.
+
+        Args:
+            x (torch.Tensor): Input batch tensor.
+            loss (torch.Tensor): Original task-specific loss to augment.
+
+        Returns:
+            torch.Tensor: Loss augmented with interval penalization terms.
+        """
 
         layers = list(self.curr_classifier_head.children())
         interval_act_layers = [i for i, layer in enumerate(layers) if isinstance(layer, IntervalActivation)]

@@ -34,11 +34,8 @@ class Prompt(NormalNN):
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
-        # interval loss
-        n_past_outputs = self.last_valid_out_dim if not self.dil else None
-
         if interval_penalization is not None:
-            total_loss += interval_penalization.forward(inputs, total_loss, n_past_outputs)
+            total_loss += interval_penalization.forward(inputs, total_loss)
 
         # ce loss
         total_loss = total_loss + prompt_loss.sum()
