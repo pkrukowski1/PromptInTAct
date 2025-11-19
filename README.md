@@ -7,7 +7,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Framework](https://img.shields.io/badge/PyTorch-1.12+-ee4c2c.svg)](https://pytorch.org/)
+[![Framework](https://img.shields.io/badge/PyTorch-2.4.1%2B--cu121-ee4c2c.svg)](https://pytorch.org/)
 
 > **Note:** This repository will be merged to the [repository](https://github.com/pkrukowski1/InTAct) in the future.
 
