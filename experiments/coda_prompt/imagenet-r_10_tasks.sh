@@ -36,12 +36,12 @@ mkdir -p $OUTDIR
 #    arg 1 = prompt component pool size
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
-var_loss_scaleS=("0.001" "0.01" "0.1" "1.0")
+VAR_LOSS_SCALES=("0.001" "0.01" "0.1" "1.0")
 INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.0")
 FEATURE_LOSS_SCALES=("0.0001" "0.001" "0.1")
 
-for var in "${var_loss_scaleS[@]}"; do
-  for out in "${internal_repr_drift_loss_scaleS[@]}"; do
+for var in "${VAR_LOSS_SCALES[@]}"; do
+  for out in "${INTERNAL_REPRESENTATION_DRIFT_REG_SCALES[@]}"; do
     for drift in "${FEATURE_LOSS_SCALES[@]}"; do
         LOGDIR=${OUTDIR}/coda-p/var${var}_out${out}_drift${drift}
         mkdir -p $LOGDIR

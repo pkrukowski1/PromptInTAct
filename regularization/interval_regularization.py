@@ -1,4 +1,4 @@
-from copy import deepcopy, copy
+from copy import deepcopy
 from typing import Union
 
 import torch
@@ -78,7 +78,7 @@ class IntervalPenalization(nn.Module):
         var_loss = zero.clone()
         output_reg_loss = zero.clone()
         interval_drift_loss = zero.clone()
-        hypercube_dist_loss = zero.clone()
+        align_repr_loss = zero.clone()
 
 
         for idx in interval_act_layers:
@@ -132,7 +132,7 @@ class IntervalPenalization(nn.Module):
                             lower_bound_reg += diff.mean()
                             upper_bound_reg += diff.mean()
 
-                        output_reg_loss += lower_bound_reg.mean().pow(2) + upper_bound_reg.mean().pow(2)
+                        output_reg_loss += lower_bound_reg.sum().pow(2) + upper_bound_reg.sum().pow(2)
 
                 if self.use_align_loss:
                     prev_center = (ub + lb) / 2.0
@@ -149,12 +149,12 @@ class IntervalPenalization(nn.Module):
 
                     center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
 
-                    hypercube_dist_loss += center_loss / (prev_radii.mean() + 1e-8)
+                    align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
         loss = (
             loss
             + self.var_loss_scale * var_loss
             + self.internal_repr_drift_loss_scale * output_reg_loss
             + self.feature_loss_scale * interval_drift_loss
-            + hypercube_dist_loss
+            + align_repr_loss
         )
         return loss
