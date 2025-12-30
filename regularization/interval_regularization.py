@@ -179,31 +179,30 @@ class IntervalPenalization(nn.Module):
                 if idx + 1 < len(layers) and isinstance(layers[idx+1], torch.nn.Linear):
                     next_layer = layers[idx+1]
 
-                lower_bound_reg = torch.tensor(0.0, dtype=float).to(x.device)
-                upper_bound_reg = torch.tensor(0.0, dtype=float).to(x.device)
                 layer_prefix = f"{idx+1}"  # assuming [Interval, Linear, Interval, Linear, ...] ordering
+
+                out_dim = next(next_layer.parameters()).shape[0]
+                total_lower = torch.zeros(out_dim, device=x.device)
+                total_upper = torch.zeros(out_dim, device=x.device)
 
                 for name, p in next_layer.named_parameters():
                     full_name = f"{layer_prefix}.{name}"
                     if full_name in self.params_buffer:
                         prev_param = self.params_buffer[full_name]
+                        diff = p - prev_param
 
                         if "weight" in name:
-                            weight_diff = p - prev_param
+                            diff_pos = torch.relu(diff)
+                            diff_neg = torch.relu(-diff)
 
-                            weight_diff_pos = torch.relu(weight_diff)
-                            weight_diff_neg = torch.relu(-weight_diff)
-
-                            # Reduce to scalar so it matches lower_bound_reg
-                            lower_bound_reg += (lb @ weight_diff_pos.T - ub @ weight_diff_neg.T).mean()
-                            upper_bound_reg += (ub @ weight_diff_pos.T - lb @ weight_diff_neg.T).mean()
+                            total_lower += (diff_pos @ lb - diff_neg @ ub)
+                            total_upper += (diff_pos @ ub - diff_neg @ lb)
 
                         elif "bias" in name:
-                            diff = p - prev_param
-                            lower_bound_reg += diff.mean()
-                            upper_bound_reg += diff.mean()
+                            total_lower += diff
+                            total_upper += diff
 
-                        output_reg_loss += lower_bound_reg.sum().pow(2) + upper_bound_reg.sum().pow(2)
+                output_reg_loss += (total_lower.pow(2).mean() + total_upper.pow(2).mean())
 
                 if self.use_align_loss:
                     prev_center = (ub + lb) / 2.0
