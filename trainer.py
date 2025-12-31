@@ -10,7 +10,7 @@ import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
-from regularization.interval_regularization import IntervalPenalization
+from regularization.intact_regularization import InTActRegularization
 
 class Trainer:
 
@@ -148,7 +148,7 @@ class Trainer:
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
         if args.use_interval_activation:
-            self.interval_penalization = IntervalPenalization(
+            self.interval_penalization = InTActRegularization(
                 var_loss_scale=args.var_loss_scale, 
                 internal_repr_drift_loss_scale=args.internal_repr_drift_loss_scale,
                 feature_loss_scale=args.feature_loss_scale,

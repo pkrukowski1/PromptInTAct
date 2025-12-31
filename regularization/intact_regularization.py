@@ -6,8 +6,9 @@ import torch.nn as nn
 
 from models.layers.interval_activation import IntervalActivation
 from models.zoo import L2P, DualPrompt, CodaPrompt
+from .utils import detach_interval_last_batches
 
-class IntervalPenalization(nn.Module):
+class InTActRegularization(nn.Module):
     """
     Loss module for usage of InTAct.
 
@@ -38,7 +39,7 @@ class IntervalPenalization(nn.Module):
             use_align_loss: bool = True
         ) -> None:
         """
-        Initializes IntervalPenalization with specified loss scales.
+        Initializes InTActRegularization with specified loss scales.
 
         Args:
             var_loss_scale (float, optional): Scale factor for variance loss. Defaults to 0.01.
@@ -62,20 +63,6 @@ class IntervalPenalization(nn.Module):
         self.feature_extractor = None
 
         self.prompt = None
-
-    def detach_interval_last_batches(self, curr_classifier_head: nn.Sequential) -> None:
-        """
-        Clears the stored last batch activations in all IntervalActivation layers
-        of the current classifier head.
-
-        Args:
-            curr_classifier_head (nn.Sequential): Classifier head containing IntervalActivation layers.
-        """
-        layers = list(curr_classifier_head.children())
-        for layer in layers:
-            if isinstance(layer, IntervalActivation):
-                if layer.curr_task_last_batch is not None:
-                    layer.curr_task_last_batch = []
 
 
     def setup_task(
@@ -108,7 +95,7 @@ class IntervalPenalization(nn.Module):
                 for name, p in self.curr_classifier_head.named_parameters()
         }
 
-            self.detach_interval_last_batches(curr_classifier_head)
+            detach_interval_last_batches(curr_classifier_head)
             self.old_classifier_head = deepcopy(curr_classifier_head)
             for p in self.old_classifier_head.parameters():
                 p.requires_grad = False
