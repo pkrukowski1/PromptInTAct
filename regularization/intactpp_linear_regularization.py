@@ -11,7 +11,23 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
 class InTActPlusPlusLinearRegularization(nn.Module):
+    """
+    InTAct++ Linear Regularization Module for Continual Learning.
 
+    This module implements a *functional drift regularizer* that constrains how
+    much a linear layer's output can change across tasks. It combines:
+
+    - Interval Arithmetic (IA) for worst-case drift bounds
+    - SVD-based low-dimensional subspace projection
+    - Residual drift bounding for discarded dimensions
+    - Variance regularization for representation compactness
+    - Slope regularization for LearnableReLU stability
+
+    The regularizer is designed to be applied as an *augmentation to the task loss*
+    during training and assumes the following architectural block:
+
+        IntervalActivation -> Linear -> LearnableReLU
+    """
     def __init__(self,
             lambda_var: float = 0.01,
             lambda_slope_reg: float = 0.01,
@@ -19,19 +35,23 @@ class InTActPlusPlusLinearRegularization(nn.Module):
             reduced_dim: int = 50,
         ) -> None:
         """
-        Initialize the interval penalization plugin for continual learning.
+        Initialize the InTAct++ regularizer.
 
         Args:
-            lambda_var (float, optional): Weight of variance regularization. Default: 0.01.
-            lambda_drift (float, optional): Weight of interval drift preservation for hidden layers. Default: 1.0.
-            reduced_dim (int, optional): Dimension of the random projection space for input hypercubes. Default: 50.
+            lambda_var (float): Weight for activation variance regularization.
+            lambda_slope_reg (float): Weight for LearnableReLU slope regularization.
+            lambda_drift (float): Weight for functional drift penalty.
+            reduced_dim (int): Dimensionality of the SVD projection subspace.
         """
         
         super().__init__()
         self.task_id = None
-        log.info(f"IntervalPenalization initialized with lambda_var={lambda_var}, "
-                 f"lambda_drift={lambda_drift}, "
-                 f"lambda_slope_reg={lambda_slope_reg}")
+        log.info(
+            f"InTAct++ initialized with "
+            f"lambda_var={lambda_var}, "
+            f"lambda_slope_reg={lambda_slope_reg}, "
+            f"lambda_drift={lambda_drift}"
+        )
 
         self.lambda_var = lambda_var
         self.lambda_slope_reg = lambda_slope_reg
@@ -60,6 +80,23 @@ class InTActPlusPlusLinearRegularization(nn.Module):
         interval_block: nn.Sequential,
         use_svd_projection: bool = True
     ) -> None:
+        """
+        Prepare the regularizer for a new task.
+
+        This method:
+        - Freezes a copy of the previous linear layer
+        - Builds or updates the SVD projection basis
+        - Updates low-dimensional input bounds
+        - Anchors LearnableReLU hinges
+        - Resets interval activation ranges
+
+        Args:
+            task_id (int): Index of the current task.
+            interval_block (nn.Sequential):
+                [IntervalActivation, Linear, LearnableReLU]
+            use_svd_projection (bool):
+                Whether to use low-dimensional SVD drift guarding.
+        """
 
         self.task_id = task_id
 
@@ -82,10 +119,9 @@ class InTActPlusPlusLinearRegularization(nn.Module):
         self.use_svd_projection = use_svd_projection
         
         if self.use_svd_projection:
-            # ------------------------------------------------------------
-            # Phase 0: Calculate projection matrix to lower-dimensional space
-            # to get hypercubes around inputs to the first layer.
-            # ------------------------------------------------------------
+            # ============================================================
+            # Phase 0 — Input Subspace Construction (SVD)
+            # ============================================================
             cls_token_repr = torch.cat([x[:, 0, :] for x in self.interval_act_layer.test_act_buffer], dim=0).to(device)
 
             with torch.no_grad():
@@ -199,9 +235,9 @@ class InTActPlusPlusLinearRegularization(nn.Module):
                     self.low_dim_inputs_min = torch.minimum(new_old_min, task_min)
                     self.low_dim_inputs_max = torch.maximum(new_old_max, task_max)
 
-        # ------------------------------------------------------------
-        # Phase 1: Forward pass over stored data
-        # ------------------------------------------------------------
+        # ============================================================
+        # Phase 1 — Replay through previous linear layer
+        # ============================================================
         learnable_relu_preacts = []
         with torch.no_grad():
             for x in cls_token_repr:
@@ -209,14 +245,14 @@ class InTActPlusPlusLinearRegularization(nn.Module):
                 x = self.prev_linear_layer(x)
                 learnable_relu_preacts.append(x.detach())
 
-        # ------------------------------------------------------------
-        # Phase 2: Update activation hypercubes
-        # ------------------------------------------------------------
+        # ============================================================
+        # Phase 2 — Reset activation intervals
+        # ============================================================
         self.interval_act_layer.reset_range()
 
-        # ------------------------------------------------------------
-        # Phase 3: Anchor LearnableReLU hinges & activate new basis
-        # ------------------------------------------------------------
+        # ============================================================
+        # Phase 3 — Anchor LearnableReLU hinges
+        # ============================================================
         learnable_relu_preacts_all = torch.cat(learnable_relu_preacts, dim=0)
         self.learnable_relu.anchor_next_shift(
             z=learnable_relu_preacts_all,
@@ -229,51 +265,40 @@ class InTActPlusPlusLinearRegularization(nn.Module):
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
         """
-        Augments the primary task loss with geometric stability and interval drift penalties.
-        
-        This method implements the core 'Drift Guard' mechanism. It uses Interval Arithmetic (IA)
-        to bound the output change (drift) of each layer relative to historical task data, 
-        accounting for both subspace variance and reconstruction residuals.
+        Augment task loss with InTAct++ regularization terms.
 
-        Mathematical Pipeline:
-            1. **Variance Minimization**: Penalizes the variance of current activations 
-               to encourage compact representational clustering, maximizing 'free' 
-               feature space for future tasks.
-            2. **Slope Regularization**: Regularizes the learnable basis coefficients 
-               of the Monotone Expansion layers to prevent high-gain instability.
-            3. **Input Layer Subspace Guard (Task t > 0)**:
-               - Computes the drift components in the low-dimensional projection (z) 
-                 and the high-dimensional residual (r).
-               - Uses the stored Alignment Matrix and Global Mean Shift to bound 
-                 the drift of the first layer's pre-activations.
-               - Incorporates the recursive worst-case residual bound (residual_max) 
-                 to ensure 'hidden' drift in the discarded SVD dimensions is penalized.
-            4. **Hidden Layer Interval Guard**:
-               - Propagates historical hypercubes through current weight updates (ΔW).
-               - Calculates per-neuron drift boundaries [lower, upper] using IA logic:
-                 δ = (ΔW+ @ lb - ΔW- @ ub) + Δb.
-               - Penalizes the Mean Squared Error (MSE) of these endpoints to strictly 
-                 limit functional deviation.
+        Regularization components:
+            - Activation variance minimization
+            - LearnableReLU slope regularization
+            - Functional drift penalty (interval-based)
 
         Args:
-            x (torch.Tensor): Input feature batch [B, D].
-            loss (torch.Tensor): Current task's empirical risk (e.g., Cross-Entropy).
+            x (torch.Tensor): Input batch.
+            loss (torch.Tensor): Task loss.
 
         Returns:
-            loss (torch.Tensor): Total loss = L_task + λ_var*L_var + λ_slope*L_slope + λ_drift*L_drift.
+            torch.Tensor: Total loss.
         """
 
         drift_loss = torch.tensor(0.0, device=x.device)
             
-        # Variance regularization
+        # ============================================================
+        # Variance regularization (representation compactness)
+        # ============================================================
         acts = self.interval_act_layer.curr_task_last_batch
         acts_flat = acts.view(acts.size(0), -1)
         var_loss = acts_flat.var(dim=0, unbiased=False).mean()
 
-        # Slope regularization
+        # ============================================================
+        # Slope regularization (LearnableReLU stability)
+        # ============================================================
         slope = self.learnable_relu.raw_scales[self.task_id]
         slope_loss = slope.pow(2).mean()
 
+
+        # ============================================================
+        # Drift regularization (tasks > 0)
+        # ============================================================
         if self.task_id > 0:
             
             lb = self.interval_act_layer.min.to(x.device)
