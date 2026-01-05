@@ -78,7 +78,7 @@ class InTActPlusPlusLinearRegularization(nn.Module):
             if p.requires_grad:
                 p.requires_grad = False
 
-        device = next(interval_block[1]).device
+        device = next(interval_block[1].parameters()).device
         self.use_svd_projection = use_svd_projection
         
         if self.use_svd_projection:
@@ -86,7 +86,7 @@ class InTActPlusPlusLinearRegularization(nn.Module):
             # Phase 0: Calculate projection matrix to lower-dimensional space
             # to get hypercubes around inputs to the first layer.
             # ------------------------------------------------------------
-            cls_token_repr = torch.cat([x.flatten(start_dim=1) for x in self.prev_linear_layer.test_act_buffer], dim=0).to(device)
+            cls_token_repr = torch.cat([x[:, 0, :] for x in self.interval_act_layer.test_act_buffer], dim=0).to(device)
 
             with torch.no_grad():
                 old_mean = self.input_mean.clone() if self.input_mean is not None else torch.zeros(cls_token_repr.size(1), device=device)
@@ -262,6 +262,8 @@ class InTActPlusPlusLinearRegularization(nn.Module):
         Returns:
             loss (torch.Tensor): Total loss = L_task + λ_var*L_var + λ_slope*L_slope + λ_drift*L_drift.
         """
+
+        drift_loss = torch.tensor(0.0, device=x.device)
             
         # Variance regularization
         acts = self.interval_act_layer.curr_task_last_batch
