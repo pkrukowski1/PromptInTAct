@@ -10,7 +10,7 @@ from models.layers.interval_activation import IntervalActivation
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-class InTActPlusPlusLinearRegularization(nn.Module):
+class InTActPlusPlusMlpBlockRegularization(nn.Module):
     """
     InTAct++ Linear Regularization Module for Continual Learning.
 

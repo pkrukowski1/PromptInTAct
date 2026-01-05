@@ -1,2 +1,2 @@
 from . import intact_regularization
-from . import intactpp_linear_regularization
+from . import intactpp_mlp_block_regularization

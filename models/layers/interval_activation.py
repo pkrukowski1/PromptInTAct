@@ -25,7 +25,7 @@ class IntervalActivation(nn.Module):
     def __init__(self,
         lower_percentile: float = 0.05,
         upper_percentile: float = 0.95,
-        use_non_linear_transform: bool = True
+        use_non_linear_transform: bool = False
     ) -> None:
         """
         Initializes the IntervalActivation layer.
