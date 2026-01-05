@@ -2,75 +2,63 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-import math
-
 class LearnableReLU(nn.Module):
+    """
+    LearnableReLU: Monotone-by-construction ReLU basis expansion
+    for continual learning.
+
+    This module represents a *learnable monotone activation function*
+    constructed as a sum of shifted ReLU basis functions:
+
+        f(z) = ∑_{i=0}^{K-1} a_i · ReLU(z - c_i)
+
+    where:
+        • z is a preactivation (typically output of a Linear layer),
+        • c_i are non-decreasing hinge locations,
+        • a_i are learnable coefficients.
+
+    The coefficients are parameterized via a *cumulative-positive*
+    construction that guarantees:
+
+        ∂f(z) / ∂z ≥ 0   for all z
+
+    i.e. the function is monotone non-decreasing with respect to z.
+
+    This property is critical for:
+        • interval arithmetic–based drift bounds,
+        • exact preservation of old-task behavior,
+        • safe functional expansion across tasks.
+
+    Continual learning protocol:
+    ----------------------------
+    • Task 0 initializes the first hinge.
+    • Each new task:
+        - anchors a new hinge beyond old-task activations,
+        - activates one additional basis function,
+        - optionally freezes previous basis parameters.
+
+    Capacity grows *only* by adding new hinges, preventing
+    destructive interference with previously learned tasks.
+    """
 
     def __init__(self,
-        in_features: int,
         out_features: int,
         k: int) -> None:
         """
-        Linear layer augmented with task-wise ReLU hinge basis functions
-        with *monotone-by-construction* derivatives, designed for
-        continual learning.
-
-        This module implements a function of the form:
-
-            f(x) = ∑_{i=0}^{T-1} a_i · ReLU(Wx + b - c_i)
-
-        where:
-        - W, b define a shared linear preactivation z = Wx + b,
-        - c_i are non-decreasing hinge locations (shifts),
-        - a_i are learnable basis coefficients derived from a
-          cumulative-positive parameterization.
-
-        Crucially, the coefficients a_i are constructed such that
-        **all partial sums of coefficients are non-negative**, which
-        guarantees that:
-
-            ∂f(z) / ∂z ≥ 0   for all z
-
-        i.e. the function is *monotone non-decreasing* with respect to
-        the preactivation z.
-
-        This property enables:
-        - exact invariance of old tasks under interval-preserving updates,
-        - analytical regularization using interval arithmetic,
-        - safe expansion of the function by adding new hinge basis
-          functions without breaking previously learned behavior.
-
-        Continual learning protocol:
-        ----------------------------
-        • Task 0 initializes the first hinge.
-        • Each new task:
-            - freezes previously learned coefficients,
-            - anchors a new hinge location beyond old-task activations,
-            - activates one additional basis function.
-
-        The representation capacity grows *only* by adding new hinges,
-        while the monotonicity constraint prevents destructive interference.
+        Initialize LearnableReLU.
 
         Args:
-            in_features (int):
-                Number of input features.
             out_features (int):
                 Number of output features.
             k (int):
                 Maximum number of hinge basis functions
-                (typically equal to the maximum number of tasks).
+                (typically the maximum number of tasks).
         """
 
         super().__init__()
         
-        self.in_features = in_features
-        self.out_features = out_features
         self.k = k
-
         self.no_curr_used_basis_functions = 1
-
-        self.weight = nn.Parameter(torch.empty(out_features, in_features), requires_grad=True)
-        self.bias = nn.Parameter(torch.empty(1, out_features), requires_grad=True)
 
         # Unconstrained parameters
         # These parameters are NOT the actual coefficients a_i.
@@ -85,17 +73,6 @@ class LearnableReLU(nn.Module):
             "cum_shifts",
             torch.zeros(k, 1, out_features)
         )
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        """
-        Initialize layer parameters.
-        """
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-        bound = 1 / math.sqrt(fan_in)
-        nn.init.uniform_(self.bias, -bound, bound)
 
     def cumulative_scales(self) -> torch.Tensor:
         """
@@ -195,77 +172,30 @@ class LearnableReLU(nn.Module):
                 P, self.cum_shifts[task_id - 1]
             )
 
-    def _min_derivative_interval(self, x_min: torch.Tensor, x_max: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the worst-case (minimum) derivative of the function
-        over an input hypercube.
-
-        This method uses interval arithmetic to bound the preactivation
-        z = Wx + b over x ∈ [x_min, x_max], and evaluates the derivative
-        at the worst-case point.
-
-        The returned value lower-bounds:
-
-            ∂f(z) / ∂z
-
-        over the entire input region. A non-negative result certifies
-        that the function is monotone over the interval, which is
-        sufficient to guarantee invariance of old-task behavior.
-
-        Args:
-            x_min (Tensor):
-                Lower corner of the input hypercube.
-            x_max (Tensor):
-                Upper corner of the input hypercube.
-
-        Returns:
-            Tensor of shape (batch_size, out_features) containing the
-            minimum derivative values.
-        """
-        x_c = 0.5 * (x_min + x_max)
-        x_r = 0.5 * (x_max - x_min)
-
-        mu = F.linear(x_c, self.weight, self.bias)
-        rad = F.linear(x_r, self.weight.abs())
-
-        z_wc = mu - rad  # worst-case
-
-        a = self.basis_scales()[:self.no_curr_used_basis_functions]
-        c = self.cum_shifts[:self.no_curr_used_basis_functions]
-
-        deriv = torch.zeros_like(z_wc)
-        for ai, ci in zip(a, c):
-            deriv += ai * (z_wc > ci).float()
-
-        return deriv
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass.
 
         Computes:
-            f(x) = ∑ a_i · ReLU(Wx + b - c_i)
+            f(x) = ∑ a_i · ReLU(x - c_i)
 
         using only the currently active basis functions.
 
-        Thanks to the cumulative-positive construction of a_i, this
-        function is guaranteed to be monotone with respect to the
-        preactivation z = Wx + b, regardless of the sign of individual
-        coefficients.
+        Due to the cumulative-positive construction of a_i,
+        the function is guaranteed to be monotone with respect
+        to its input.
 
         Args:
-            x (Tensor): Input tensor of shape (batch_size, in_features).
-            regularization_mode (bool): If True, the function is used in regularization mode 
-                (without the last basis function).
+            x (Tensor):
+                Input tensor of shape (batch_size, out_features).
 
         Returns:
             Tensor of shape (batch_size, out_features).
         """
-        z = F.linear(x, self.weight, self.bias)
         a = self.basis_scales()[:self.no_curr_used_basis_functions]
         c = self.cum_shifts[:self.no_curr_used_basis_functions]
 
-        out = (a * torch.relu(z.unsqueeze(0) - c)).sum(dim=0)
+        out = (a * torch.relu(x.unsqueeze(0) - c)).sum(dim=0)
 
         return out
 
