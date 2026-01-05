@@ -106,10 +106,10 @@ class InTActPlusPlusLinearRegularization(nn.Module):
         if len(interval_block) != 3:
             raise ValueError("Interval block should consists of 3 layers: IntervalActivation, affine layer, and LearnableReLU.")
         
-        self.interval_act_layer = interval_block[0]             # There is no learnable params, so we may keep the original reference
-        self.curr_linear_layer = interval_block[1]              # Here we keep a reference to the original object stored in the memory
-        self.prev_linear_layer = deepcopy(interval_block[1])    # Here we need a reference to the object before learning the next task
-        self.learnable_relu = interval_block[2]                 # We need a reference to the original layer
+        self.interval_act_layer = interval_block[2]             # There is no learnable params, so we may keep the original reference
+        self.curr_linear_layer = interval_block[0]              # Here we keep a reference to the original object stored in the memory
+        self.prev_linear_layer = deepcopy(interval_block[0])    # Here we need a reference to the object before learning the next task
+        self.learnable_relu = interval_block[1]                 # We need a reference to the original layer
 
         for p in self.prev_linear_layer.parameters():
             if p.requires_grad:

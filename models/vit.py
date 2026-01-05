@@ -43,9 +43,9 @@ class MlpWithLearnableActFnc(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.learnable_act_fnc_block = nn.Sequential(
-            IntervalActivation(use_non_linear_transform=False),
             nn.Linear(in_features, hidden_features),
-            LearnableReLU(hidden_features, num_basis_functions)
+            LearnableReLU(hidden_features, num_basis_functions),
+            IntervalActivation(use_non_linear_transform=False),
         )
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
@@ -206,21 +206,23 @@ class VisionTransformer(nn.Module):
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.blocks = [
-            Block(
-                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
-                )
-            for i in range(depth)]
+        temp_blocks = []
+        num_frozen = depth - self.num_unfrozen_blocks
         
-        del self.blocks[-self.num_unfrozen_blocks:]
-        self.blocks.extend([
-            BlockWithLearnableActFnc(
-                dim=embed_dim, num_heads=num_heads, num_basis_functions=num_basis_functions, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
-                qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
-                )
-            for i in range(depth[-self.num_unfrozen_blocks:])
-        ])
+        for i in range(num_frozen):
+            temp_blocks.append(Block(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
+            ))
+        
+        for i in range(num_frozen, depth):
+            temp_blocks.append(BlockWithLearnableActFnc(
+                dim=embed_dim, num_heads=num_heads, num_basis_functions=num_basis_functions, 
+                mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale, 
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
+            ))
+            
+        self.blocks = nn.ModuleList(temp_blocks)
 
         self.norm = norm_layer(embed_dim)
 
