@@ -201,7 +201,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             
             # This calculates how much the output 'jumps' just because of the weights changing
             # relative to the average input signal.
-            mean_drift = delta_W @ self.input_mean.to(x.device)
+            mean_drift = delta_W @ self.input_mean_fc1.to(x.device)
             effective_bias = delta_b + mean_drift
 
             lb = self.interval_act_layer1.min.to(x.device)
