@@ -374,7 +374,7 @@ class ViTZoo(nn.Module):
             from timm.models import vit_base_patch16_224
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()
             del load_dict['head.weight']; del load_dict['head.bias']
-            zoo_model.load_state_dict(load_dict)
+            zoo_model.load_state_dict(load_dict, strict=False)
 
         # create prompting module
         if self.prompt_flag == 'l2p':

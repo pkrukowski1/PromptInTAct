@@ -53,9 +53,11 @@ class Prompt(NormalNN):
         # parse optimizer args
         # Multi-GPU
         if isinstance(self.model, torch.nn.DataParallel):
-            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.classifier.parameters())
+            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.classifier.parameters()) \
+                + self.model.module.feat.trainable_params
         else:
-            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.classifier.parameters())
+            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.classifier.parameters()) \
+                + self.model.feat.trainable_params
         print('*****************************************')
         optimizer_arg = {'params':params_to_opt,
                          'lr':self.config['lr'],

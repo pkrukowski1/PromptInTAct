@@ -102,14 +102,16 @@ class IntervalActivation(nn.Module):
         Returns:
             torch.Tensor: Activated tensor of shape (batch, input_shape).
         """
-        out = x.view(x.shape[0], -1)
+        out = x 
 
         if self.use_non_linear_transform:
             out = F.leaky_relu(out)
 
         if self.training:
-            self.curr_task_last_batch = out        
+            self.curr_task_last_batch = out.view(-1, out.size(-1))        
         else:
-            self.test_act_buffer.append(out.detach().cpu().view(out.size(0), -1))
+            
+            self.test_act_buffer.append(out.detach().cpu().view(-1, out.size(-1)))
 
+        # Return 'out' with its ORIGINAL shape [Batch, Tokens, Hidden]
         return out

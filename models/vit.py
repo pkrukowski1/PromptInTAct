@@ -158,7 +158,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, 
-                 ckpt_layer=0, num_unfrozen_blocks=0, num_basis_functions=0):
+                 ckpt_layer=0, num_unfrozen_blocks=1, num_basis_functions=10):
         """
         Args:
             img_size (int, tuple): input image size
@@ -207,6 +207,7 @@ class VisionTransformer(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         temp_blocks = []
+        trainable_params = []
         num_frozen = depth - self.num_unfrozen_blocks
         
         for i in range(num_frozen):
@@ -215,14 +216,19 @@ class VisionTransformer(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
             ))
         
+        trainable_blocks = []
         for i in range(num_frozen, depth):
-            temp_blocks.append(BlockWithLearnableActFnc(
+            trainable_blocks.append(BlockWithLearnableActFnc(
                 dim=embed_dim, num_heads=num_heads, num_basis_functions=num_basis_functions, 
                 mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale, 
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
             ))
+            trainable_params.extend(list(trainable_blocks[-1].mlp.fc1.parameters()))
+            trainable_params.extend(list(trainable_blocks[-1].mlp.learnable_relu.parameters()))
+            trainable_params.extend(list(trainable_blocks[-1].mlp.fc2.parameters()))
             
-        self.blocks = nn.ModuleList(temp_blocks)
+        self.blocks = nn.ModuleList(temp_blocks + trainable_blocks)
+        self.trainable_params = trainable_params
 
         self.norm = norm_layer(embed_dim)
 

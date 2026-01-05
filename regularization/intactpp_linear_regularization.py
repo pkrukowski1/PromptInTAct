@@ -76,7 +76,6 @@ class InTActPlusPlusLinearRegularization(nn.Module):
         self,
         task_id: int,
         interval_block: nn.Sequential,
-        use_svd_projection: bool = True
     ) -> None:
         """
         Prepare the regularizer for a new task.
@@ -92,8 +91,6 @@ class InTActPlusPlusLinearRegularization(nn.Module):
             task_id (int): Index of the current task.
             interval_block (nn.Sequential):
                 [IntervalActivation, Linear, LearnableReLU]
-            use_svd_projection (bool):
-                Whether to use low-dimensional SVD drift guarding.
         """
 
         self.task_id = task_id
