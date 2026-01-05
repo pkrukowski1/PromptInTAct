@@ -37,7 +37,7 @@ def create_args():
     parser.add_argument('--DW', default=False, action='store_true', help='dataset balancing')
     parser.add_argument('--prompt_param', nargs="+", type=float, default=[1, 1, 1],
                          help="e prompt pool size, e prompt length, g prompt length")
-    parser.add_argument('--use_interval_activation', default=False, action='store_true', 
+    parser.add_argument('--use_intact_regularization', default=False, action='store_true', 
                         help="The flag to indicate if interval activations should be used or not")
     parser.add_argument('--var_loss_scale', type=float, default=0.1, help="variance balancing when interval regularization is used")
     parser.add_argument('--internal_repr_drift_loss_scale', type=float, default=0.1, help="feature extractor output regularization balancing" \

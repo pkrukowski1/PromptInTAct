@@ -48,7 +48,7 @@ for var in "${VAR_LOSS_SCALES[@]}"; do
       python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
         --learner_type prompt --learner_name CODAPrompt \
         --prompt_param 100 8 0.0 \
-        --use_interval_activation \
+        --use_intact_regularization \
         --log_dir $LOGDIR \
         --var_loss_scale $var \
         --internal_repr_drift_loss_scale $out \

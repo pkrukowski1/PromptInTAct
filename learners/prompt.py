@@ -110,7 +110,7 @@ class CODAPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_intact_regularization=cfg['use_intact_regularization'])
         return model
 
 # @article{wang2022dualprompt,
@@ -127,7 +127,7 @@ class DualPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_intact_regularization=cfg['use_intact_regularization'])
         return model
 
 # @inproceedings{wang2022learning,
@@ -145,5 +145,5 @@ class L2P(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_intact_regularization=cfg['use_intact_regularization'])
         return model

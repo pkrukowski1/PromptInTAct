@@ -29,7 +29,7 @@ class NormalNN(nn.Module):
         self.batch_size = learner_config['batch_size']
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']
-        self.use_interval_activation = learner_config['use_interval_activation']
+        self.use_intact_regularization = learner_config['use_intact_regularization']
         self.dil = learner_config['dil']
 
         # replay memory parameters

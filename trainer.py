@@ -141,17 +141,16 @@ class Trainer:
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param],
-                        'use_interval_activation': args.use_interval_activation,
+                        'use_intact_regularization': args.use_intact_regularization,
                         'dil': self.dil
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
-        if args.use_interval_activation:
+        if args.use_intact_regularization:
             self.interval_penalization = InTActRegularization(
                 var_loss_scale=args.var_loss_scale, 
                 internal_repr_drift_loss_scale=args.internal_repr_drift_loss_scale,
-                feature_loss_scale=args.feature_loss_scale,
                 use_align_loss=args.use_align_loss
             )
 
@@ -180,7 +179,7 @@ class Trainer:
         # for each task
         for i in range(self.max_task):
             
-            if self.learner_config['use_interval_activation']:
+            if self.learner_config['use_intact_regularization']:
                 self.interval_penalization.setup_task(
                     task_id=i,
                     curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
