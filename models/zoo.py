@@ -352,10 +352,15 @@ class ViTZoo(nn.Module):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        self.classifier = nn.Sequential(
-            IntervalActivation(768, use_non_linear_transform=False),
-            nn.Linear(768, num_classes)
-        )
+        if use_interval_activation:
+            self.classifier = nn.Sequential(
+                IntervalActivation(768, use_non_linear_transform=False),
+                nn.Linear(768, num_classes)
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(768, num_classes)
+            )
        
         self.prompt_flag = prompt_flag
         self.task_id = None
