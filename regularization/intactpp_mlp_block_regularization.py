@@ -67,15 +67,17 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         self.residual_max = None
 
         self.interval_act_layer: IntervalActivation = None
-        self.prev_linear_layer: nn.Linear = None
-        self.curr_linear_layer: nn.Linear = None
+        self.prev_linear_layer1: nn.Linear = None
+        self.curr_linear_layer1: nn.Linear = None
+        self.prev_linear_layer2: nn.Linear = None
+        self.curr_linear_layer2: nn.Linear = None
         self.learnable_relu: LearnableReLU = None
 
 
     def setup_task(
         self,
         task_id: int,
-        interval_block: nn.Sequential,
+        mlp_block: nn.Sequential,
     ) -> None:
         """
         Prepare the regularizer for a new task.
@@ -89,8 +91,8 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
 
         Args:
             task_id (int): Index of the current task.
-            interval_block (nn.Sequential):
-                [IntervalActivation, Linear, LearnableReLU]
+            mlp_block (nn.Sequential):
+                [Linear, LearnableReLU, IntervalActivation, Linear]
         """
 
         self.task_id = task_id
@@ -98,19 +100,28 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         if task_id == 0:
             return
         
-        if len(interval_block) != 3:
+        if len(mlp_block) != 4:
             raise ValueError("Interval block should consists of 3 layers: IntervalActivation, affine layer, and LearnableReLU.")
         
-        self.interval_act_layer = interval_block[2]             # There is no learnable params, so we may keep the original reference
-        self.curr_linear_layer = interval_block[0]              # Here we keep a reference to the original object stored in the memory
-        self.prev_linear_layer = deepcopy(interval_block[0])    # Here we need a reference to the object before learning the next task
-        self.learnable_relu = interval_block[1]                 # We need a reference to the original layer
+        self.interval_act_layer = mlp_block[3]             # There is no learnable params, so we may keep the original reference
+        
+        self.curr_linear_layer1 = mlp_block[0]              # Here we keep a reference to the original object stored in the memory
+        self.prev_linear_layer1 = deepcopy(mlp_block[0])    # Here we need a reference to the object before learning the next task
+        
+        self.curr_linear_layer2 = mlp_block[2]              # Here we keep a reference to the original object stored in the memory
+        self.prev_linear_layer2 = deepcopy(mlp_block[2])    # Here we need a reference to the object before learning the next task
+        
+        self.learnable_relu = mlp_block[1]                 # We need a reference to the original layer
 
-        for p in self.prev_linear_layer.parameters():
+        for p in self.prev_linear_layer1.parameters():
+            if p.requires_grad:
+                p.requires_grad = False
+        
+        for p in self.prev_linear_layer2.parameters():
             if p.requires_grad:
                 p.requires_grad = False
 
-        device = next(interval_block[1].parameters()).device
+        device = next(mlp_block[0].parameters()).device
         
         # ============================================================
         # Phase 0 — Input Subspace Construction (SVD)
@@ -235,7 +246,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         with torch.no_grad():
             for x in cls_token_repr:
                 x = x.to(device)
-                x = self.prev_linear_layer(x)
+                x = self.prev_linear_layer1(x)
                 learnable_relu_preacts.append(x.detach())
 
         # ============================================================
@@ -273,77 +284,62 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             torch.Tensor: Total loss.
         """
 
-        drift_loss = torch.tensor(0.0, device=x.device)
-            
         # ============================================================
-        # Variance regularization (representation compactness)
+        # 1. Variance regularization (representation compactness)
         # ============================================================
         acts = self.interval_act_layer.curr_task_last_batch
-        acts_flat = acts.view(acts.size(0), -1)
+        # Treat all tokens in the batch as samples for the same neurons
+        acts_flat = acts.view(-1, acts.size(-1)) 
         var_loss = acts_flat.var(dim=0, unbiased=False).mean()
 
         # ============================================================
-        # Slope regularization (LearnableReLU stability)
+        # 2. Slope regularization (LearnableReLU stability)
         # ============================================================
+        # Protects the basis functions of the current task from exploding
         slope = self.learnable_relu.raw_scales[self.task_id]
         slope_loss = slope.pow(2).mean()
 
-
         # ============================================================
-        # Drift regularization (tasks > 0)
+        # 3. Drift regularization (Tasks > 0)
         # ============================================================
         if self.task_id > 0:
-            
-            lb = self.interval_act_layer.min.to(x.device)
-            ub = self.interval_act_layer.max.to(x.device)
-            
-            curr_W = self.curr_linear_layer.weight        # [out, D]
-            curr_b = self.curr_linear_layer.bias          # [out]
+            # --- Layer 1: SVD Subspace Guard ---
+            delta_W1 = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
+            delta_b1 = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
 
-            prev_W = self.prev_linear_layer.weight
-            prev_b = self.prev_linear_layer.bias
+            # Project drift into the significant subspace
+            delta_A = delta_W1 @ self.projection_matrix.t()
+            delta_W_res = delta_W1 - (delta_A @ self.projection_matrix)
 
-            delta_W = curr_W - prev_W                     # [out, D]
-            delta_b = curr_b - prev_b                     # [out]
+            # Residual drift bounding
+            r_max = self.residual_max.to(x.device)
+            res_drift_radius = delta_W_res.abs() @ r_max 
+            delta_mean = delta_W1 @ self.input_mean.to(x.device)
 
-            delta_A = delta_W @ self.projection_matrix.t()   # [out, k]
+            z_lb, z_ub = self.low_dim_inputs_min.to(x.device), self.low_dim_inputs_max.to(x.device)
+            dA_pos, dA_neg = torch.relu(delta_A), torch.relu(-delta_A)
 
-            delta_W_proj = delta_A @ self.projection_matrix  # [out, D]
-            delta_W_res = delta_W - delta_W_proj             # [out, D]
+            l1_lower = (dA_pos @ z_lb - dA_neg @ z_ub + delta_b1 + delta_mean - res_drift_radius)
+            l1_upper = (dA_pos @ z_ub - dA_neg @ z_lb + delta_b1 + delta_mean + res_drift_radius)
+            drift_loss += (l1_lower.pow(2).mean() + l1_upper.pow(2).mean())
 
-            r_max = self.residual_max.to(x.device)           # [D]
-            res_drift_radius = delta_W_res.abs() @ r_max     # [out]
+            # --- Layer 2: Standard Interval Propagation ---
+            # Using intervals from IntervalActivation (post-ReLU)
+            delta_W2 = self.curr_linear_layer2.weight - self.prev_linear_layer2.weight
+            delta_b2 = self.curr_linear_layer2.bias - self.prev_linear_layer2.bias
 
-            delta_mean = delta_W @ self.input_mean.to(x.device)
+            z2_lb = self.interval_act_layer.min.to(x.device)
+            z2_ub = self.interval_act_layer.max.to(x.device)
+            dW2_pos, dW2_neg = torch.relu(delta_W2), torch.relu(-delta_W2)
 
-            z_lb = self.low_dim_inputs_min.to(x.device)      # [k]
-            z_ub = self.low_dim_inputs_max.to(x.device)      # [k]
+            l2_lower = dW2_pos @ z2_lb - dW2_neg @ z2_ub + delta_b2
+            l2_upper = dW2_pos @ z2_ub - dW2_neg @ z2_lb + delta_b2
+            drift_loss += (l2_lower.pow(2).mean() + l2_upper.pow(2).mean())
 
-            delta_A_pos = torch.relu(delta_A)
-            delta_A_neg = torch.relu(-delta_A)
-
-            lower = (
-                delta_A_pos @ z_lb
-                - delta_A_neg @ z_ub
-                + delta_b
-                + delta_mean
-                - res_drift_radius
-            )
-
-            upper = (
-                delta_A_pos @ z_ub
-                - delta_A_neg @ z_lb
-                + delta_b
-                + delta_mean
-                + res_drift_radius
-            )
-
-            drift_loss = lower.pow(2).mean() + upper.pow(2).mean()
-
-        loss = (
+        # Final Weighted Loss
+        return (
             loss
             + self.lambda_var * var_loss
             + self.lambda_slope_reg * slope_loss
             + self.lambda_drift * drift_loss
         )
-        return loss
