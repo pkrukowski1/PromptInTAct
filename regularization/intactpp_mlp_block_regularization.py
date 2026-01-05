@@ -30,7 +30,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             lambda_var: float = 0.01,
             lambda_slope_reg: float = 0.01,
             lambda_drift: float = 1.0,
-            reduced_dim: int = 50,
         ) -> None:
         """
         Initialize the InTAct++ regularizer.
@@ -39,7 +38,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             lambda_var (float): Weight for activation variance regularization.
             lambda_slope_reg (float): Weight for LearnableReLU slope regularization.
             lambda_drift (float): Weight for functional drift penalty.
-            reduced_dim (int): Dimensionality of the SVD projection subspace.
         """
         
         super().__init__()
