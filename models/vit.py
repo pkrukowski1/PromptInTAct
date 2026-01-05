@@ -158,7 +158,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, 
-                 ckpt_layer=0, num_unfrozen_blocks=0):
+                 ckpt_layer=0, num_unfrozen_blocks=0, num_basis_functions=0):
         """
         Args:
             img_size (int, tuple): input image size
@@ -177,8 +177,20 @@ class VisionTransformer(nn.Module):
             drop_path_rate (float): stochastic depth rate
             norm_layer (nn.Module): normalization layer
             num_unfrozen_blocks (int): number of unfrozen transformer blocks to fine-tune them continually
+            num_basis_functions (int): number of basis functions used in learnable activation function
         """
         super().__init__()
+        assert (
+            (num_unfrozen_blocks == 0 and num_basis_functions == 0)
+            or
+            (num_unfrozen_blocks > 0 and num_basis_functions > 0)
+        ), (
+            "Invalid configuration: "
+            "num_unfrozen_blocks and num_basis_functions must be either "
+            "both zero or both strictly positive. "
+            f"Got num_unfrozen_blocks={num_unfrozen_blocks}, "
+            f"num_basis_functions={num_basis_functions}."
+        )
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
 
@@ -194,13 +206,21 @@ class VisionTransformer(nn.Module):
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.blocks = nn.ModuleList([
+        self.blocks = [
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
                 )
-            for i in range(depth)])
-        blocks_to_unfreeze = self.blocks[-self.num_unfrozen_blocks:]
+            for i in range(depth)]
+        
+        del self.blocks[-self.num_unfrozen_blocks:]
+        self.blocks.extend([
+            BlockWithLearnableActFnc(
+                dim=embed_dim, num_heads=num_heads, num_basis_functions=num_basis_functions, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
+                )
+            for i in range(depth[-self.num_unfrozen_blocks:])
+        ])
 
         self.norm = norm_layer(embed_dim)
 
