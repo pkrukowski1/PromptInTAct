@@ -5,9 +5,6 @@ from typing import List
 import torch
 import torch.nn as nn
 
-from models.layers.learnable_relu import LearnableReLU
-from models.layers.interval_activation import IntervalActivation
-
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
