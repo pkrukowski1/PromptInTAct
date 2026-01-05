@@ -13,7 +13,6 @@ class IntervalActivation(nn.Module):
     to enforce that activations remain within these bounds when learning new tasks.
 
     Attributes:
-        input_shape (int): Flattened size of the input tensor.
         lower_percentile (float): Lower percentile for min bound computation.
         upper_percentile (float): Upper percentile for max bound computation.
         use_non_linear_transform (bool): Whether to apply Leaky ReLU activation.
@@ -24,7 +23,6 @@ class IntervalActivation(nn.Module):
     """
 
     def __init__(self,
-        input_shape: tuple,
         lower_percentile: float = 0.05,
         upper_percentile: float = 0.95,
         use_non_linear_transform: bool = True
@@ -33,17 +31,14 @@ class IntervalActivation(nn.Module):
         Initializes the IntervalActivation layer.
 
         Args:
-            input_shape (Tuple[int, ...]): Shape of the input tensor.
             lower_percentile (float, optional): Lower percentile for min bound. Defaults to 0.05.
             upper_percentile (float, optional): Upper percentile for max bound. Defaults to 0.95.
             use_non_linear_transform (bool, optional): Whether to apply Leaky ReLU activation. Defaults to True.
         """
 
         super().__init__()
-        self.init_args = (input_shape,)
         self.init_kwargs = dict(lower_percentile=lower_percentile, upper_percentile=upper_percentile)
 
-        self.input_shape = np.prod(input_shape)
         self.lower_percentile = lower_percentile
         self.upper_percentile = upper_percentile
         self.use_non_linear_transform = use_non_linear_transform

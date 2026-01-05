@@ -11,6 +11,9 @@ from timm.models.vision_transformer import _cfg, PatchEmbed
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.helpers import named_apply, adapt_input_conv
 
+from models.layers.learnable_relu import LearnableReLU
+from models.layers.interval_activation import IntervalActivation
+
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """
@@ -26,6 +29,29 @@ class Mlp(nn.Module):
     def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+    
+
+class MlpWithLearnableActFnc(nn.Module):
+    """ MLP with LearnableReLU layers
+    """
+    def __init__(self, num_basis_functions, in_features, hidden_features=None, out_features=None, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.learnable_act_fnc_block = nn.Sequential(
+            IntervalActivation(use_non_linear_transform=False),
+            nn.Linear(in_features, hidden_features),
+            LearnableReLU(hidden_features, num_basis_functions)
+        )
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.learnable_act_fnc_block(x)
         x = self.drop(x)
         x = self.fc2(x)
         x = self.drop(x)
@@ -103,7 +129,26 @@ class Block(nn.Module):
         x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
+    
+class BlockWithLearnableActFnc(nn.Module):
 
+    def __init__(self, dim, num_heads, num_basis_functions, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+                 drop_path=0., norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = MlpWithLearnableActFnc(num_basis_functions=num_basis_functions, in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
+
+
+    def forward(self, x, register_hook=False, prompt=None):
+        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x
     
 class VisionTransformer(nn.Module):
     """ Vision Transformer
@@ -113,7 +158,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, 
-                 ckpt_layer=0):
+                 ckpt_layer=0, num_unfrozen_blocks=0):
         """
         Args:
             img_size (int, tuple): input image size
@@ -130,7 +175,8 @@ class VisionTransformer(nn.Module):
             drop_rate (float): dropout rate
             attn_drop_rate (float): attention dropout rate
             drop_path_rate (float): stochastic depth rate
-            norm_layer: (nn.Module): normalization layer
+            norm_layer (nn.Module): normalization layer
+            num_unfrozen_blocks (int): number of unfrozen transformer blocks to fine-tune them continually
         """
         super().__init__()
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -140,6 +186,8 @@ class VisionTransformer(nn.Module):
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
 
         num_patches = self.patch_embed.num_patches
+
+        self.num_unfrozen_blocks = num_unfrozen_blocks
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
@@ -152,6 +200,8 @@ class VisionTransformer(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
                 )
             for i in range(depth)])
+        blocks_to_unfreeze = self.blocks[-self.num_unfrozen_blocks:]
+
         self.norm = norm_layer(embed_dim)
 
         trunc_normal_(self.pos_embed, std=.02)
