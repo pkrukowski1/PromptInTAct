@@ -42,17 +42,19 @@ class MlpWithLearnableActFnc(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        self.interval_layer = IntervalActivation(use_non_linear_transform=False)
+        self.interval_layer1 = IntervalActivation(use_non_linear_transform=False)
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.learnable_relu = LearnableReLU(hidden_features, num_basis_functions)
         self.fc2 = nn.Linear(hidden_features, out_features)
+        self.interval_layer2 = IntervalActivation(use_non_linear_transform=False)
         self.drop = nn.Dropout(drop)
 
     def forward(self, x):
+        x = self.interval_layer1(x)
         x = self.fc1(x)
         x = self.learnable_relu(x)
-        x = self.interval_layer(x)
         x = self.drop(x)
+        x = self.interval_layer2(x)
         x = self.fc2(x)
         x = self.drop(x)
         return x

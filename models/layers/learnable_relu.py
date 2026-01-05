@@ -164,10 +164,16 @@ class LearnableReLU(nn.Module):
             percentile (float):
                 Upper percentile used to anchor the hinge.
         """
-        P = torch.quantile(z, percentile, dim=0, keepdim=True)
+        # If z is [B, N, D], flatten to [B*N, D]
+        if z.dim() == 3:
+            z = z.reshape(-1, z.size(-1))
+            
+        P = torch.quantile(z, percentile, dim=0, keepdim=True) # Result: [1, D]
+        
         if task_id == 0:
             self.cum_shifts[0] = P
         else:
+            # Ensure P is [1, D] so it fits into the [K, 1, D] buffer correctly
             self.cum_shifts[task_id] = torch.maximum(
                 P, self.cum_shifts[task_id - 1]
             )
@@ -192,11 +198,26 @@ class LearnableReLU(nn.Module):
         Returns:
             Tensor of shape (batch_size, out_features).
         """
+        # a and c are [K, 1, out_features]
         a = self.basis_scales()[:self.no_curr_used_basis_functions]
         c = self.cum_shifts[:self.no_curr_used_basis_functions]
+        
+        # x: [B, D] or [B, N, D]
+        # x_unsqueezed: [1, B, D] or [1, B, N, D]
+        x_unsqueezed = x.unsqueeze(0)
+        
+        # c needs to be [K, 1, 1, D] if x is 3D, or [K, 1, D] if x is 2D
+        # We can use .view() or simply ensure c matches the tail
+        # But the easiest way is to let PyTorch handle it by unsqueezing c:
+        
+        # Ensuring c and a can broadcast over the 'Tokens' dimension if it exists:
+        if x.dim() == 3:
+            # c, a: [K, 1, 1, out_features]
+            c = c.unsqueeze(2)
+            a = a.unsqueeze(2)
 
-        out = (a * torch.relu(x.unsqueeze(0) - c)).sum(dim=0)
-
-        return out
-
+        # Result before sum: [K, B, (N), D]
+        res = a * torch.relu(x_unsqueezed - c)
+        
+        return res.sum(dim=0)
         

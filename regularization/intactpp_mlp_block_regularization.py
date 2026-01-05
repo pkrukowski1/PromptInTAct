@@ -1,5 +1,6 @@
 import logging
 from copy import deepcopy
+from typing import List
 
 import torch
 import torch.nn as nn
@@ -53,218 +54,117 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             f"lambda_drift={lambda_drift}"
         )
 
+        self.task_id = None
         self.lambda_var = lambda_var
         self.lambda_slope_reg = lambda_slope_reg
         self.lambda_drift = lambda_drift
-        self.reduced_dim = reduced_dim
 
-        self.projection_matrix = None
-        self.low_dim_inputs_min = None
-        self.low_dim_inputs_max = None
+        # References to current layers
+        self.interval_layers = []
+        self.curr_linear_layers = []
+        
+        # Frozen copies of previous layers
+        self.prev_linear_layers = nn.ModuleList()
+        
+        self.learnable_relu = None
 
-        self.input_mean = None  # Global mean (D,)
-        self.num_samples = 0
-        self.residual_max = None
-
-        self.interval_act_layer: IntervalActivation = None
-        self.prev_linear_layer1: nn.Linear = None
-        self.curr_linear_layer1: nn.Linear = None
-        self.prev_linear_layer2: nn.Linear = None
-        self.curr_linear_layer2: nn.Linear = None
-        self.learnable_relu: LearnableReLU = None
-
-
+    @torch.no_grad()
     def setup_task(
         self,
         task_id: int,
-        mlp_block: nn.Sequential,
+        mlp_layers: List, # [Interval1, Linear1, LearnableReLU, Interval2, Linear2]
     ) -> None:
         """
-        Prepare the regularizer for a new task.
-
-        This method:
-        - Freezes a copy of the previous linear layer
-        - Builds or updates the SVD projection basis
-        - Updates low-dimensional input bounds
-        - Anchors LearnableReLU hinges
-        - Resets interval activation ranges
+        Prepare the regularizer for a new task by anchoring hinges,
+        calculating global token means, and freezing old weights.
 
         Args:
-            task_id (int): Index of the current task.
-            mlp_block (nn.Sequential):
-                [Linear, LearnableReLU, IntervalActivation, Linear]
+            task_id (int): Current task id.
+            mlp_layers (List): List of layers from a ViT block to be regularized
         """
-
         self.task_id = task_id
 
         if task_id == 0:
             return
-        
-        if len(mlp_block) != 4:
-            raise ValueError("Interval block should consists of 3 layers: IntervalActivation, affine layer, and LearnableReLU.")
-        
-        self.interval_act_layer = mlp_block[3]             # There is no learnable params, so we may keep the original reference
-        
-        self.curr_linear_layer1 = mlp_block[0]              # Here we keep a reference to the original object stored in the memory
-        self.prev_linear_layer1 = deepcopy(mlp_block[0])    # Here we need a reference to the object before learning the next task
-        
-        self.curr_linear_layer2 = mlp_block[2]              # Here we keep a reference to the original object stored in the memory
-        self.prev_linear_layer2 = deepcopy(mlp_block[2])    # Here we need a reference to the object before learning the next task
-        
-        self.learnable_relu = mlp_block[1]                 # We need a reference to the original layer
 
-        for p in self.prev_linear_layer1.parameters():
-            if p.requires_grad:
-                p.requires_grad = False
+        # 1. Map Layer References
+        # interval_layers[0] guards linear_layers[0] (fc1)
+        # interval_layers[1] guards linear_layers[1] (fc2)
+        self.interval_layers = [mlp_layers[0], mlp_layers[3]]
+        self.curr_linear_layers = [mlp_layers[1], mlp_layers[4]]
+        self.learnable_relu = mlp_layers[2]
+
+        # 2. Deepcopy and Freeze the previous task's weights
+        # We use ModuleList so they are properly moved to the correct device
+        self.prev_linear_layers = nn.ModuleList([
+            deepcopy(self.curr_linear_layers[0]).eval(),
+            deepcopy(self.curr_linear_layers[1]).eval()
+        ])
         
-        for p in self.prev_linear_layer2.parameters():
-            if p.requires_grad:
+        for layer in self.prev_linear_layers:
+            for p in layer.parameters():
                 p.requires_grad = False
 
-        device = next(mlp_block[0].parameters()).device
-        
+        self.interval_act_layer1 = self.interval_layers[0]
+        self.curr_linear_layer1  = self.curr_linear_layers[0]
+        self.prev_linear_layer1  = self.prev_linear_layers[0]
+
+        self.interval_act_layer2 = self.interval_layers[1]
+        self.curr_linear_layer2  = self.curr_linear_layers[1]
+        self.prev_linear_layer2  = self.prev_linear_layers[1]
+
+        device = next(self.curr_linear_layers[0].parameters()).device
+
         # ============================================================
-        # Phase 0 — Input Subspace Construction (SVD)
+        # Phase 1 — Global Statistics Collection (All Tokens)
         # ============================================================
-        cls_token_repr = torch.cat([x[:, 0, :] for x in self.interval_act_layer.test_act_buffer], dim=0).to(device)
+        all_inputs_fc1 = []
+        preacts_for_hinges = []
 
-        with torch.no_grad():
-            old_mean = self.input_mean.clone() if self.input_mean is not None else torch.zeros(cls_token_repr.size(1), device=device)
-            if self.input_mean is None:
-                self.input_mean = cls_token_repr.mean(0)
-                self.num_samples = cls_token_repr.size(0)
-            else:
-                n_old, n_new = self.num_samples, cls_token_repr.size(0)
-                total_samples = n_old + n_new
-                new_mean = cls_token_repr.mean(0)
-                updated_mean = (self.input_mean * n_old + new_mean * n_new) / total_samples
-                self.input_mean = updated_mean
-                self.num_samples = total_samples
+        for x in self.interval_layers[0].test_act_buffer:
+            x = x.to(device)
+            all_inputs_fc1.append(x.detach())
 
-            # Center with global mean
-            X_centered = cls_token_repr - self.input_mean
+            z = self.prev_linear_layers[0](x)
+            preacts_for_hinges.append(z.detach())
 
-            # 2. Extract Task Basis directly from data using SVD
-            U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)
-            actual_dim = min(self.reduced_dim, S.size(0))
-            M_task = Vh[:actual_dim, :]  # [k, D]
-
-            if M_task.shape[0] < self.reduced_dim:
-                # Pad with random orthogonal vectors if needed
-                extra = self.reduced_dim - M_task.shape[0]
-                random_extra = torch.randn(extra, cls_token_repr.size(1), device=device)
-                Q, _ = torch.linalg.qr(random_extra.t())
-                extra_basis = Q.t()[:extra]
-                M_task = torch.cat([M_task, extra_basis], dim=0)
-
-            if self.projection_matrix is None:
-                self.projection_matrix = M_task.detach()
-            else:
-                # 3. MERGE BASES: Union of Subspaces via SVD for top directions
-                B = torch.cat([self.projection_matrix.t(), M_task.t()], dim=1)  # [D, 2k]
-                U, S, Vh = torch.linalg.svd(B, full_matrices=False)
-                actual_dim = min(self.reduced_dim, S.size(0))
-                new_projection = U[:, :actual_dim].t().detach()  # [k, D]
-                if new_projection.shape[0] < self.reduced_dim:
-                    extra = self.reduced_dim - new_projection.shape[0]
-                    random_extra = torch.randn(extra, cls_token_repr.size(1), device=device)
-                    Q, _ = torch.linalg.qr(random_extra.t())
-                    extra_basis = Q.t()[:extra]
-                    new_projection = torch.cat([new_projection, extra_basis], dim=0)
-
-                similarity = self.projection_matrix @ new_projection.t()  # [k, k]
-                for j in range(self.reduced_dim):
-                    i = torch.argmax(torch.abs(similarity[:, j]))
-                    if similarity[i, j] < 0:
-                        new_projection[j] *= -1
-
-                # Reproject old bounds to new basis (before assigning new projection)
-                if self.low_dim_inputs_min is not None:
-                    R = self.projection_matrix @ new_projection.t()  # (k, k)
-                
-                    R_t = R.t() 
-                    R_pos = torch.relu(R_t)
-                    R_neg = torch.relu(-R_t)
-
-                    # Vectorized Interval Transformation
-                    # new_old_min = (R_pos @ old_min - R_neg @ old_max)
-                    new_old_min = torch.mv(R_pos, self.low_dim_inputs_min) - torch.mv(R_neg, self.low_dim_inputs_max)
-                    new_old_max = torch.mv(R_pos, self.low_dim_inputs_max) - torch.mv(R_neg, self.low_dim_inputs_min)
-
-                    # Adjust for global mean shift
-                    shift = (old_mean - self.input_mean) @ new_projection.t()
-                    new_old_min += shift
-                    new_old_max += shift
-
-                self.projection_matrix = new_projection
-
-            z = X_centered @ self.projection_matrix.t()   # [N, k]
-
-            all_abs_r = []
-            chunk_size = 2048 
-            device = X_centered.device
-
-            for start in range(0, X_centered.size(0), chunk_size):
-                end = start + chunk_size
-                Xc = X_centered[start:end]
-                zc = z[start:end]
-
-                # Actual Residual: R = X - M^T z
-                # This is the "information loss" of the projection
-                Rc = Xc - (zc @ self.projection_matrix)
-                
-                all_abs_r.append(Rc.abs().cpu())
-
-            R_abs_all = torch.cat(all_abs_r, dim=0)
-            sorted_R, _ = torch.sort(R_abs_all, dim=0)
-            n_r = sorted_R.size(0)
-            residual_max_task = sorted_R[int(0.95 * n_r)].to(device)
-
-            if self.residual_max is None:
-                self.residual_max = residual_max_task
-            else:
-                self.residual_max = torch.maximum(self.residual_max, residual_max_task)
-
-            z_cpu = z.cpu()
-            sorted_z, _ = torch.sort(z_cpu, dim=0)
-            n_z = sorted_z.size(0)
+        # ============================================================
+        # Phase 2 — Mean Centering (The "Tightness" Trick)
+        # ============================================================
+        if all_inputs_fc1:
+            Z_all = torch.cat(all_inputs_fc1, dim=0)
             
-            task_min = sorted_z[int(0.05 * n_z)].to(device)
-            task_max = sorted_z[int(0.95 * n_z)].to(device)
-
-            if self.low_dim_inputs_min is None:
-                self.low_dim_inputs_min = task_min
-                self.low_dim_inputs_max = task_max
-            else:
-                self.low_dim_inputs_min = torch.minimum(new_old_min, task_min)
-                self.low_dim_inputs_max = torch.maximum(new_old_max, task_max)
+            # Calculate the global mean of ALL tokens in the dataset
+            # This is used in 'forward' to center the interval expansion
+            input_mean = Z_all.mean(dim=0)
+            self.register_buffer("input_mean_fc1", input_mean)
+            
+            log.info(f"Task {task_id}: Global mean for fc1 captured. Shape: {input_mean.shape}")
 
         # ============================================================
-        # Phase 1 — Replay through previous linear layer
+        # Phase 3 — Anchor LearnableReLU Hinges
         # ============================================================
-        learnable_relu_preacts = []
-        with torch.no_grad():
-            for x in cls_token_repr:
-                x = x.to(device)
-                x = self.prev_linear_layer1(x)
-                learnable_relu_preacts.append(x.detach())
+        if preacts_for_hinges:
+            Z_pre = torch.cat(preacts_for_hinges, dim=0)
+            
+            # Anchor hinges at the 95th percentile of old activations
+            self.learnable_relu.anchor_next_shift(
+                z=Z_pre, 
+                task_id=task_id, 
+                percentile=0.95
+            )
+            # Enable the next basis function for the new task
+            self.learnable_relu.set_no_used_basis_functions(task_id + 1)
 
         # ============================================================
-        # Phase 2 — Reset activation intervals
+        # Phase 4 — Finalize Interval Bounds
         # ============================================================
-        self.interval_act_layer.reset_range()
-
-        # ============================================================
-        # Phase 3 — Anchor LearnableReLU hinges
-        # ============================================================
-        learnable_relu_preacts_all = torch.cat(learnable_relu_preacts, dim=0)
-        self.learnable_relu.anchor_next_shift(
-            z=learnable_relu_preacts_all,
-            task_id=task_id,
-            percentile=0.95,
-        )
-        self.learnable_relu.set_no_used_basis_functions(task_id + 1)
-
+        # We trigger the reset_range for both Interval layers.
+        # This computes the final [min, max] hypercube from the test_act_buffer
+        for layer in self.interval_layers:
+            layer.reset_range()
+            
+        log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
                     
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
@@ -284,62 +184,42 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             torch.Tensor: Total loss.
         """
 
-        # ============================================================
-        # 1. Variance regularization (representation compactness)
-        # ============================================================
-        acts = self.interval_act_layer.curr_task_last_batch
-        # Treat all tokens in the batch as samples for the same neurons
-        acts_flat = acts.view(-1, acts.size(-1)) 
-        var_loss = acts_flat.var(dim=0, unbiased=False).mean()
+        var_loss = torch.tensor(0.0, device=x.device)
+        drift_loss = torch.tensor(0.0, device=x.device)
 
-        # ============================================================
-        # 2. Slope regularization (LearnableReLU stability)
-        # ============================================================
-        # Protects the basis functions of the current task from exploding
+        # 1. Variance Regularization
+        for interval_layer in self.interval_layers:
+            acts = interval_layer.curr_task_last_batch
+            if acts is not None:
+                # Sequence-aware: treat every token as a sample
+                acts_flat = acts.view(-1, acts.size(-1)) 
+                var_loss += acts_flat.var(dim=0, unbiased=False).mean()
+
+        # 2. Slope Regularization
         slope = self.learnable_relu.raw_scales[self.task_id]
         slope_loss = slope.pow(2).mean()
 
-        # ============================================================
-        # 3. Drift regularization (Tasks > 0)
-        # ============================================================
+        # 3. Pure Interval Drift Regularization
         if self.task_id > 0:
-            # --- Layer 1: SVD Subspace Guard ---
-            delta_W1 = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
-            delta_b1 = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
+            delta_W = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
+            delta_b = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
+            
+            # This calculates how much the output 'jumps' just because of the weights changing
+            # relative to the average input signal.
+            mean_drift = delta_W @ self.input_mean.to(x.device)
+            effective_bias = delta_b + mean_drift
 
-            # Project drift into the significant subspace
-            delta_A = delta_W1 @ self.projection_matrix.t()
-            delta_W_res = delta_W1 - (delta_A @ self.projection_matrix)
+            lb = self.interval_act_layer1.min.to(x.device)
+            ub = self.interval_act_layer1.max.to(x.device)
+            
+            dW_pos = torch.relu(delta_W)
+            dW_neg = torch.relu(-delta_W)
 
-            # Residual drift bounding
-            r_max = self.residual_max.to(x.device)
-            res_drift_radius = delta_W_res.abs() @ r_max 
-            delta_mean = delta_W1 @ self.input_mean.to(x.device)
+            drift_low = dW_pos @ lb - dW_neg @ ub + effective_bias
+            drift_up  = dW_pos @ ub - dW_neg @ lb + effective_bias
 
-            z_lb, z_ub = self.low_dim_inputs_min.to(x.device), self.low_dim_inputs_max.to(x.device)
-            dA_pos, dA_neg = torch.relu(delta_A), torch.relu(-delta_A)
+            drift_loss += (drift_low.pow(2).mean() + drift_up.pow(2).mean())
 
-            l1_lower = (dA_pos @ z_lb - dA_neg @ z_ub + delta_b1 + delta_mean - res_drift_radius)
-            l1_upper = (dA_pos @ z_ub - dA_neg @ z_lb + delta_b1 + delta_mean + res_drift_radius)
-            drift_loss += (l1_lower.pow(2).mean() + l1_upper.pow(2).mean())
-
-            # --- Layer 2: Standard Interval Propagation ---
-            # Using intervals from IntervalActivation (post-ReLU)
-            delta_W2 = self.curr_linear_layer2.weight - self.prev_linear_layer2.weight
-            delta_b2 = self.curr_linear_layer2.bias - self.prev_linear_layer2.bias
-
-            z2_lb = self.interval_act_layer.min.to(x.device)
-            z2_ub = self.interval_act_layer.max.to(x.device)
-            dW2_pos, dW2_neg = torch.relu(delta_W2), torch.relu(-delta_W2)
-
-            l2_lower = dW2_pos @ z2_lb - dW2_neg @ z2_ub + delta_b2
-            l2_upper = dW2_pos @ z2_ub - dW2_neg @ z2_lb + delta_b2
-            drift_loss += (l2_lower.pow(2).mean() + l2_upper.pow(2).mean())
-
-        # Final Weighted Loss
-        return (
-            loss
-            + self.lambda_var * var_loss
-            + self.lambda_slope_reg * slope_loss
-            + self.lambda_drift * drift_loss
-        )
+        return loss + (self.lambda_var * var_loss) + \
+                      (self.lambda_slope_reg * slope_loss) + \
+                      (self.lambda_drift * drift_loss)
