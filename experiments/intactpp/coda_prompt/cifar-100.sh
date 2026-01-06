@@ -17,7 +17,7 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=./${DATASET}/10-task
+OUTDIR=./${DATASET}/10-task/intactpp
 
 # hard coded inputs
 GPUID='0'
@@ -38,13 +38,13 @@ mkdir -p $OUTDIR
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 # Define the ranges you want to search over
 LAMBDA_VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
-LAMBDA_DRIFT_SCALES=("0.01" "0.1" "1.0")
+LAMBDA_DRIFT_SCALES=("0.001" "0.01" "0.1" "1.0")
 LAMBDA_SLOPE_SCALES=("0.0001" "0.001" "0.1")
 
 for var in "${LAMBDA_VAR_SCALES[@]}"; do
   for drift in "${LAMBDA_DRIFT_SCALES[@]}"; do
-    for slope in "${LAMBDA_FEAT_SCALES[@]}"; do
-      LOGDIR=${OUTDIR}/intactpp/coda-p/var${var}_slope${slope}_drift${drift}
+    for slope in "${LAMBDA_SLOPE_SCALES[@]}"; do
+      LOGDIR=${OUTDIR}/coda-p/var${var}_slope${slope}_drift${drift}
       mkdir -p $LOGDIR
       python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
         --learner_type prompt --learner_name CODAPrompt \
