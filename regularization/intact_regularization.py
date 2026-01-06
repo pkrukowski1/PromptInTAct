@@ -21,7 +21,7 @@ class InTActRegularization(nn.Module):
     Attributes:
         task_id (int | None): Current task index.
         lambda_var (float): Scale factor for variance regularization loss.
-        lambda_drift (float): Scale factor for output / weight drift loss.
+        lambda_drift (float): Scale factor for driftput / weight drift loss.
         lambda_feat (float): Scale factor for internal representation drift loss.
         use_align_loss (bool): Whether to apply center-alignment loss for activations.
         params_buffer (dict): Stores cloned parameters from previous task for regularization.
@@ -43,7 +43,7 @@ class InTActRegularization(nn.Module):
 
         Args:
             lambda_var (float, optional): Scale factor for variance loss. Defaults to 0.01.
-            lambda_drift (float, optional): Scale factor for output / weight drift loss. Defaults to 1.0.
+            lambda_drift (float, optional): Scale factor for driftput / weight drift loss. Defaults to 1.0.
             lambda_feat (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
             use_align_loss (bool, optional): Whether to include activation center alignment loss. Defaults to True.
         """

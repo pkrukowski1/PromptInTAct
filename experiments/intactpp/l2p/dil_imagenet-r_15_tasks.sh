@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=L2P_dil_imagenet-r_15_tasks
+#SBATCH --job-name=L2P_dil_imagenet-r_15_tasks_intactpp
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -40,9 +40,9 @@ LAMBDA_DRIFT_SCALES=("0.0001" "0.001" "0.01" "0.1")
 LAMBDA_FEAT_SCALES=("0.1")
 
 for var in "${LAMBDA_VAR_SCALES[@]}"; do
-  for out in "${LAMBDA_DRIFT_SCALES[@]}"; do
-    for drift in "${LAMBDA_FEAT_SCALES[@]}"; do
-        LOGDIR=${OUTDIR}/l2p/var${var}_out${out}_drift${drift}
+  for drift in "${LAMBDA_DRIFT_SCALES[@]}"; do
+    for feat in "${LAMBDA_FEAT_SCALES[@]}"; do
+        LOGDIR=${OUTDIR}/l2p/var${var}_drift${drift}_feat${feat}
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name L2P \
@@ -50,8 +50,8 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
             --use_intact_regularization \
             --log_dir $LOGDIR \
             --lambda_var $var \
-            --lambda_drift $out \
-            --lambda_feat $drift \
+            --lambda_drift $drift \
+            --lambda_feat $feat \
             --use_align_loss
     done
   done
