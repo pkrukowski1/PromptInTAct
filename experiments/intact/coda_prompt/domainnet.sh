@@ -21,7 +21,7 @@ OUTDIR=./${DATASET}/5-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/domainnet_prompt.yaml
+CONFIG=configs/intact/domainnet_prompt.yaml
 REPEAT=1
 OVERWRITE=0
 

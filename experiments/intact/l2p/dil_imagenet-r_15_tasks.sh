@@ -20,7 +20,7 @@ OUTDIR=./${DATASET}/15-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/dil_imnet-r_prompt_15_tasks.yaml
+CONFIG=configs/intact/dil_imnet-r_prompt_15_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 

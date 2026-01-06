@@ -21,7 +21,7 @@ OUTDIR=./${DATASET}/10-task
 
 # hard coded inputs
 GPUID='0'
-CONFIG=configs/imnet-r_prompt_10_tasks.yaml
+CONFIG=configs/intact/imnet-r_prompt_10_tasks.yaml
 REPEAT=5
 OVERWRITE=0
 
