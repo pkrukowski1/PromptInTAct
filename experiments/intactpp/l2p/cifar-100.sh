@@ -57,7 +57,8 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
             --log_dir $LOGDIR \
             --lambda_var $var \
             --lambda_drift $drift \
-            --lambda_slope_reg $slope
+            --lambda_slope_reg $slope \
+            --num_last_blocks_to_finetune 2
     done
   done
 done
