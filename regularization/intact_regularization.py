@@ -20,9 +20,9 @@ class InTActRegularization(nn.Module):
 
     Attributes:
         task_id (int | None): Current task index.
-        var_loss_scale (float): Scale factor for variance regularization loss.
-        internal_repr_drift_loss_scale (float): Scale factor for output / weight drift loss.
-        feature_loss_scale (float): Scale factor for internal representation drift loss.
+        lambda_var (float): Scale factor for variance regularization loss.
+        lambda_int_drift (float): Scale factor for output / weight drift loss.
+        lambda_feat (float): Scale factor for internal representation drift loss.
         use_align_loss (bool): Whether to apply center-alignment loss for activations.
         params_buffer (dict): Stores cloned parameters from previous task for regularization.
         curr_classifier_head (nn.Sequential | None): Current task classifier head.
@@ -33,27 +33,27 @@ class InTActRegularization(nn.Module):
     """
 
     def __init__(self,
-            var_loss_scale: float = 0.01,
-            internal_repr_drift_loss_scale: float = 1.0,
-            feature_loss_scale: float = 1.0,
+            lambda_var: float = 0.01,
+            lambda_int_drift: float = 1.0,
+            lambda_feat: float = 1.0,
             use_align_loss: bool = True
         ) -> None:
         """
         Initializes InTActRegularization with specified loss scales.
 
         Args:
-            var_loss_scale (float, optional): Scale factor for variance loss. Defaults to 0.01.
-            internal_repr_drift_loss_scale (float, optional): Scale factor for output / weight drift loss. Defaults to 1.0.
-            feature_loss_scale (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
+            lambda_var (float, optional): Scale factor for variance loss. Defaults to 0.01.
+            lambda_int_drift (float, optional): Scale factor for output / weight drift loss. Defaults to 1.0.
+            lambda_feat (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
             use_align_loss (bool, optional): Whether to include activation center alignment loss. Defaults to True.
         """
         
         super().__init__()
         self.task_id = None
 
-        self.var_loss_scale = var_loss_scale
-        self.internal_repr_drift_loss_scale = internal_repr_drift_loss_scale
-        self.feature_loss_scale = feature_loss_scale
+        self.lambda_var = lambda_var
+        self.lambda_int_drift = lambda_int_drift
+        self.lambda_feat = lambda_feat
         self.use_align_loss = use_align_loss
 
         self.params_buffer = {}
@@ -209,9 +209,9 @@ class InTActRegularization(nn.Module):
                     align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
         loss = (
             loss
-            + self.var_loss_scale * var_loss
-            + self.internal_repr_drift_loss_scale * output_reg_loss
-            + self.feature_loss_scale * interval_drift_loss
+            + self.lambda_var * var_loss
+            + self.lambda_int_drift * output_reg_loss
+            + self.lambda_feat * interval_drift_loss
             + align_repr_loss
         )
         return loss

@@ -36,13 +36,13 @@ mkdir -p $OUTDIR
 #    arg 1 = e-prompt pool size (# tasks)
 #    arg 2 = e-prompt pool length
 #    arg 3 = g-prompt pool length
-VAR_LOSS_SCALES=("0.001" "0.01" "0.1" "1.0")
-INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.0")
-FEATURE_LOSS_SCALES=("0.0001" "0.001" "0.1")
+LAMBDA_VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
+LAMBDA_INT_DRIFT_SCALES=("0.0")
+LAMBDA_FEAT_SCALES=("0.0001" "0.001" "0.1")
 
-for var in "${VAR_LOSS_SCALES[@]}"; do
-  for out in "${INTERNAL_REPRESENTATION_DRIFT_REG_SCALES[@]}"; do
-    for drift in "${FEATURE_LOSS_SCALES[@]}"; do
+for var in "${LAMBDA_VAR_SCALES[@]}"; do
+  for out in "${LAMBDA_INT_DRIFT_SCALES[@]}"; do
+    for drift in "${LAMBDA_FEAT_SCALES[@]}"; do
         LOGDIR=${OUTDIR}/dual_prompt/var${var}_out${out}_drift${drift}
         mkdir -p $LOGDIR
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
@@ -50,9 +50,9 @@ for var in "${VAR_LOSS_SCALES[@]}"; do
             --prompt_param 10 20 6 \
             --use_intact_regularization \
             --log_dir $LOGDIR \
-            --var_loss_scale $var \
-            --internal_repr_drift_loss_scale $out \
-            --feature_loss_scale $drift \
+            --lambda_var $var \
+            --lambda_int_drift $out \
+            --lambda_feat $drift \
             --use_align_loss
     done
   done
