@@ -21,3 +21,4 @@ lambda_var: 0.01
 lambda_drift: 1.0
 lambda_feat: 1.0
 use_align_loss: True
+reg_type: intact

@@ -48,7 +48,7 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
             --learner_type prompt --learner_name DualPrompt \
             --prompt_param 6 20 6 \
-            --use_intact_regularization \
+            --reg_type intact \
             --log_dir $LOGDIR \
             --lambda_var $var \
             --lambda_drift $drift \

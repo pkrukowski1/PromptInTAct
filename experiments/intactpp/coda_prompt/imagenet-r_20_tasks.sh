@@ -49,7 +49,7 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
       python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
         --learner_type prompt --learner_name CODAPrompt \
         --prompt_param 100 8 0.0 \
-        --use_intactpp_regularization \
+        --reg_type intactpp \
         --log_dir $LOGDIR \
         --lambda_var $var \
         --lambda_drift $drift \

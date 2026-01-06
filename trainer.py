@@ -11,6 +11,7 @@ from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
 from regularization.intact_regularization import InTActRegularization
+from regularization.intactpp_mlp_block_regularization import InTActPlusPlusMlpBlockRegularization
 
 class Trainer:
 
@@ -120,6 +121,7 @@ class Trainer:
         self.add_dim = 0
 
         # Prepare the self.learner (model)
+        self.learner_config = vars(args).copy()
         self.learner_config = {'num_classes': num_classes,
                         'lr': args.lr,
                         'debug_mode': args.debug_mode == 1,
@@ -141,18 +143,23 @@ class Trainer:
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param],
-                        'use_intact_regularization': args.use_intact_regularization,
+                        'reg_type': args.reg_type,
                         'dil': self.dil
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
-        if args.use_intact_regularization:
-            self.interval_penalization = InTActRegularization(
+        if args.reg_type == 'intact':
+            self.regularization = InTActRegularization(
                 lambda_var=args.lambda_var, 
                 lambda_drift=args.lambda_drift,
                 use_align_loss=args.use_align_loss
             )
+        elif args.reg_type == 'intactpp':
+            self.regularization = []
+        else:
+            self.regularization = None
+            
 
     def task_eval(self, t_index, local=False, task='acc'):
 
@@ -175,12 +182,12 @@ class Trainer:
         temp_dir = self.log_dir + '/temp/'
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
-        interval_penalization = None
+        regularization = None
         # for each task
         for i in range(self.max_task):
             
-            if self.learner_config['use_intact_regularization']:
-                self.interval_penalization.setup_task(
+            if self.learner_config['reg_type'] == 'intact':
+                self.regularization.setup_task(
                     task_id=i,
                     curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
                         else self.learner.model.classifier,
@@ -189,7 +196,7 @@ class Trainer:
                     prompt=self.learner.model.prompt
                 )
 
-                interval_penalization = self.interval_penalization
+                regularization = self.regularization
            
             # save current task index
             self.current_t_index = i
@@ -238,7 +245,7 @@ class Trainer:
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization)
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, regularization)
 
             # save model
             self.learner.save_model(model_save_dir)

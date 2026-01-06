@@ -23,3 +23,4 @@ lambda_feat: 1.0
 use_align_loss: True
 domain_num: 15
 dil: True
+reg_type: intact

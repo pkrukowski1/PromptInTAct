@@ -37,10 +37,6 @@ def create_args():
     parser.add_argument('--DW', default=False, action='store_true', help='dataset balancing')
     parser.add_argument('--prompt_param', nargs="+", type=float, default=[1, 1, 1],
                          help="e prompt pool size, e prompt length, g prompt length")
-    parser.add_argument('--use_intact_regularization', default=False, action='store_true', 
-                        help="The flag to indicate if InTAct regularization should be used or not")
-    parser.add_argument('--use_intactpp_regularization', default=False, action='store_true', 
-                        help="The flag to indicate if InTAct++ regularization should be used or not")
     parser.add_argument('--lambda_var', type=float, default=0.1, help="variance balancing when interval regularization is used")
     parser.add_argument('--lambda_drift', type=float, default=0.1, help="feature extractor output regularization balancing" \
         " when interval regularization is used")
@@ -49,6 +45,9 @@ def create_args():
     parser.add_argument('--use_align_loss', default=False, action='store_true', 
                         help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
     parser.add_argument('--num_last_blocks_to_finetune', default=0, help="Number of last transformer blocks to finetune to new tasks")
+    parser.add_argument('--reg_type', type=str, default=None, 
+                        choices=['intact', 'intactpp'],
+                        help="Type of regularization to apply (default: None)")
 
 
     # Config Arg

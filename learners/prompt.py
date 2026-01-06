@@ -22,7 +22,7 @@ class Prompt(NormalNN):
         self.prompt_param = learner_config['prompt_param']
         super(Prompt, self).__init__(learner_config)
 
-    def update_model(self, inputs, targets, interval_penalization=None):
+    def update_model(self, inputs, targets, regularization=None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
@@ -34,15 +34,15 @@ class Prompt(NormalNN):
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
-        if interval_penalization is not None:
-            total_loss += interval_penalization.forward(inputs, total_loss)
+        if regularization is not None:
+            total_loss += regularization.forward(inputs, total_loss)
 
         # ce loss
         total_loss = total_loss + prompt_loss.sum()
 
         # step
         self.optimizer.zero_grad()
-        total_loss.backward(retain_graph=True if interval_penalization is not None else False)
+        total_loss.backward(retain_graph=True if regularization is not None else False)
         self.optimizer.step()
 
         return total_loss.detach(), logits
@@ -110,7 +110,7 @@ class CODAPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param,
-                                                                               use_intact_regularization=cfg['use_intact_regularization'])
+                                                                               reg_type=cfg['reg_type'])
         return model
 
 # @article{wang2022dualprompt,
@@ -127,7 +127,7 @@ class DualPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,
-                                                                               use_intact_regularization=cfg['use_intact_regularization'])
+                                                                               reg_type=cfg['reg_type'])
         return model
 
 # @inproceedings{wang2022learning,
@@ -145,5 +145,5 @@ class L2P(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,
-                                                                               use_intact_regularization=cfg['use_intact_regularization'])
+                                                                               reg_type=cfg['reg_type'])
         return model

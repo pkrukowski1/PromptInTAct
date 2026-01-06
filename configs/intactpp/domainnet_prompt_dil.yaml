@@ -23,3 +23,4 @@ lambda_slope_reg: 0.01
 domain_num: 6
 dil: True
 num_last_blocks_to_finetune: 2
+reg_type: intactpp

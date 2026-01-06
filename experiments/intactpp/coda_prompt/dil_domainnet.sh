@@ -48,12 +48,12 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
           --learner_type prompt --learner_name CODAPrompt \
           --prompt_param 100 8 0.0 \
-          --use_intactpp_regularization \
+          --reg_type intactpp \
           --log_dir $LOGDIR \
           --lambda_var $var \
           --lambda_drift $drift \
           --lambda_feat $feat \
-        --num_last_blocks_to_finetune 2
+          --num_last_blocks_to_finetune 2
     done
   done
 done
