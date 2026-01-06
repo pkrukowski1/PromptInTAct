@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=CODA-P_imagenet-r_20_tasks
+#SBATCH --job-name=CODA-P_imagenet-r_20_tasks_intact
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -37,11 +37,11 @@ mkdir -p $OUTDIR
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 LAMBDA_VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
-LAMBDA_INT_DRIFT_SCALES=("0.0")
+LAMBDA_DRIFT_SCALES=("0.0")
 LAMBDA_FEAT_SCALES=("0.0001" "0.001" "0.1")
 
 for var in "${LAMBDA_VAR_SCALES[@]}"; do
-  for out in "${LAMBDA_INT_DRIFT_SCALES[@]}"; do
+  for out in "${LAMBDA_DRIFT_SCALES[@]}"; do
     for drift in "${LAMBDA_FEAT_SCALES[@]}"; do
       LOGDIR=${OUTDIR}/coda-p/var${var}_out${out}_drift${drift}
       mkdir -p $LOGDIR
@@ -51,7 +51,7 @@ for var in "${LAMBDA_VAR_SCALES[@]}"; do
         --use_intact_regularization \
         --log_dir $LOGDIR \
         --lambda_var $var \
-        --lambda_int_drift $out \
+        --lambda_drift $out \
         --lambda_feat $drift \
         --use_align_loss
     done

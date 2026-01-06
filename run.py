@@ -40,7 +40,7 @@ def create_args():
     parser.add_argument('--use_intact_regularization', default=False, action='store_true', 
                         help="The flag to indicate if interval activations should be used or not")
     parser.add_argument('--lambda_var', type=float, default=0.1, help="variance balancing when interval regularization is used")
-    parser.add_argument('--lambda_int_drift', type=float, default=0.1, help="feature extractor output regularization balancing" \
+    parser.add_argument('--lambda_drift', type=float, default=0.1, help="feature extractor output regularization balancing" \
         " when interval regularization is used")
     parser.add_argument('--lambda_feat', type=float, default=0.1, help="interval drift regularization balancing" \
         " when interval regularization is used")

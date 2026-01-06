@@ -18,8 +18,7 @@ validation: False
 train_aug: True
 rand_split: True
 lambda_var: 0.01
-lambda_int_drift: 1.0
-lambda_feat: 1.0
-use_align_loss: True
+lambda_drift: 1.0
+lambda_slope_reg: 0.01
 domain_num: 6
 dil: True

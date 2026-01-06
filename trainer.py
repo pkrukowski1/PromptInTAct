@@ -150,7 +150,7 @@ class Trainer:
         if args.use_intact_regularization:
             self.interval_penalization = InTActRegularization(
                 lambda_var=args.lambda_var, 
-                lambda_int_drift=args.lambda_int_drift,
+                lambda_drift=args.lambda_drift,
                 use_align_loss=args.use_align_loss
             )
 
