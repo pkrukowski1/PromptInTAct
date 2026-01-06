@@ -22,3 +22,4 @@ lambda_drift: 1.0
 lambda_slope_reg: 0.01
 domain_num: 15
 dil: True
+num_last_blocks_to_finetune: 2

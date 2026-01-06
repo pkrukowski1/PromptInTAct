@@ -20,3 +20,4 @@ rand_split: True
 lambda_var: 0.01
 lambda_drift: 1.0
 lambda_slope_reg: 0.01
+num_last_blocks_to_finetune: 2
