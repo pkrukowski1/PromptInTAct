@@ -182,38 +182,50 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         var_loss = torch.tensor(0.0, device=x.device)
         drift_loss = torch.tensor(0.0, device=x.device)
 
-        # 1. Variance Regularization
+        # 1. Variance Regularization (Compactness)
         for interval_layer in self.interval_layers:
             acts = interval_layer.curr_task_last_batch
             if acts is not None:
-                # Sequence-aware: treat every token as a sample
                 acts_flat = acts.view(-1, acts.size(-1)) 
                 var_loss += acts_flat.var(dim=0, unbiased=False).mean()
 
-        # 2. Slope Regularization
+        # 2. Slope Regularization (LearnableReLU Stability)
         slope = self.learnable_relu.raw_scales[self.task_id]
         slope_loss = slope.pow(2).mean()
 
-        # 3. Pure Interval Drift Regularization
+        # 3. Functional Drift Regularization (Recursive Chaining)
         if self.task_id > 0:
-            delta_W = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
-            delta_b = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
+            # --- LAYER 1: Linear1 (fc1) ---
+            delta_W1 = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
+            delta_b1 = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
             
-            # This calculates how much the output 'jumps' just because of the weights changing
-            # relative to the average input signal.
-            mean_drift = delta_W @ self.input_mean_fc1.to(x.device)
-            effective_bias = delta_b + mean_drift
+            mean_drift1 = delta_W1 @ self.input_mean_fc1.to(x.device)
+            effective_bias1 = delta_b1 + mean_drift1
 
-            lb = self.interval_act_layer1.min.to(x.device)
-            ub = self.interval_act_layer1.max.to(x.device)
+            lb1 = self.interval_act_layer1.min.to(x.device)
+            ub1 = self.interval_act_layer1.max.to(x.device)
             
-            dW_pos = torch.relu(delta_W)
-            dW_neg = torch.relu(-delta_W)
+            dW1_pos, dW1_neg = torch.relu(delta_W1), torch.relu(-delta_W1)
 
-            drift_low = dW_pos @ lb - dW_neg @ ub + effective_bias
-            drift_up  = dW_pos @ ub - dW_neg @ lb + effective_bias
+            drift_low1 = dW1_pos @ lb1 - dW1_neg @ ub1 + effective_bias1
+            drift_up1  = dW1_pos @ ub1 - dW1_neg @ lb1 + effective_bias1
+            drift_loss += (drift_low1.pow(2).mean() + drift_up1.pow(2).mean())
 
-            drift_loss += (drift_low.pow(2).mean() + drift_up.pow(2).mean())
+            # --- LAYER 2: Linear2 (fc2) ---
+            delta_W2 = self.curr_linear_layer2.weight - self.prev_linear_layer2.weight
+            delta_b2 = self.curr_linear_layer2.bias - self.prev_linear_layer2.bias
+
+            # Interval bounds for the latent space AFTER LearnableReLU
+            lb2 = self.interval_act_layer2.min.to(x.device)
+            ub2 = self.interval_act_layer2.max.to(x.device)
+            
+            dW2_pos, dW2_neg = torch.relu(delta_W2), torch.relu(-delta_W2)
+
+            # We usually skip mean centering for fc2 because LearnableReLU outputs 
+            # are inherently anchored by hinges and biased toward zero/positive.
+            drift_low2 = dW2_pos @ lb2 - dW2_neg @ ub2 + delta_b2
+            drift_up2  = dW2_pos @ ub2 - dW2_neg @ lb2 + delta_b2
+            drift_loss += (drift_low2.pow(2).mean() + drift_up2.pow(2).mean())
 
         return loss + (self.lambda_var * var_loss) + \
                       (self.lambda_slope_reg * slope_loss) + \
