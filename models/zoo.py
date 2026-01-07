@@ -348,11 +348,11 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
 class ViTZoo(nn.Module):
     def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None,
-                 intact=False):
+                 reg_type=None):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        if intact:
+        if reg_type == 'intact':
             self.classifier = nn.Sequential(
                 IntervalActivation(use_non_linear_transform=False),
                 nn.Linear(768, num_classes)
@@ -410,7 +410,7 @@ class ViTZoo(nn.Module):
         else:
             return out
             
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, intact=False):
+def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, reg_type=None):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param,
-                  intact=intact)
+                  reg_type=reg_type)
 
