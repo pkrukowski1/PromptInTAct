@@ -110,7 +110,8 @@ class CODAPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param,
-                                                                               reg_type=cfg['reg_type'])
+                                                                               reg_type=cfg['reg_type'], 
+                                                                               n_last_blocks_to_finetune=cfg['n_last_blocks_to_finetune'])
         return model
 
 # @article{wang2022dualprompt,
@@ -127,7 +128,8 @@ class DualPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,
-                                                                               reg_type=cfg['reg_type'])
+                                                                               reg_type=cfg['reg_type'],
+                                                                               n_last_blocks_to_finetune=cfg['n_last_blocks_to_finetune'])
         return model
 
 # @inproceedings{wang2022learning,
@@ -145,5 +147,6 @@ class L2P(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,
-                                                                               reg_type=cfg['reg_type'])
+                                                                               reg_type=cfg['reg_type'],
+                                                                               n_last_blocks_to_finetune=cfg['n_last_blocks_to_finetune'])
         return model

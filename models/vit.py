@@ -38,13 +38,13 @@ class Mlp(nn.Module):
 class MlpWithLearnableActFnc(nn.Module):
     """ MLP with LearnableReLU layers
     """
-    def __init__(self, num_basis_functions, in_features, hidden_features=None, out_features=None, drop=0.):
+    def __init__(self, n_basis_functions, in_features, hidden_features=None, out_features=None, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.interval_layer1 = IntervalActivation(use_non_linear_transform=False)
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.learnable_relu = LearnableReLU(hidden_features, num_basis_functions)
+        self.learnable_relu = LearnableReLU(hidden_features, n_basis_functions)
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.interval_layer2 = IntervalActivation(use_non_linear_transform=False)
         self.drop = nn.Dropout(drop)
@@ -134,7 +134,7 @@ class Block(nn.Module):
     
 class BlockWithLearnableActFnc(nn.Module):
 
-    def __init__(self, dim, num_heads, num_basis_functions, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+    def __init__(self, dim, num_heads, n_basis_functions, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -144,7 +144,7 @@ class BlockWithLearnableActFnc(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = MlpWithLearnableActFnc(num_basis_functions=num_basis_functions, in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
+        self.mlp = MlpWithLearnableActFnc(n_basis_functions=n_basis_functions, in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
 
 
     def forward(self, x, register_hook=False, prompt=None):
@@ -160,7 +160,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, 
-                 ckpt_layer=0, num_unfrozen_blocks=1, num_basis_functions=10):
+                 ckpt_layer=0, n_last_blocks_to_finetune=0, n_basis_functions=10):
         """
         Args:
             img_size (int, tuple): input image size
@@ -178,20 +178,20 @@ class VisionTransformer(nn.Module):
             attn_drop_rate (float): attention dropout rate
             drop_path_rate (float): stochastic depth rate
             norm_layer (nn.Module): normalization layer
-            num_unfrozen_blocks (int): number of unfrozen transformer blocks to fine-tune them continually
-            num_basis_functions (int): number of basis functions used in learnable activation function
+            n_last_blocks_to_finetune (int): number of unfrozen transformer blocks to fine-tune them continually
+            n_basis_functions (int): number of basis functions used in learnable activation function
         """
         super().__init__()
         assert (
-            (num_unfrozen_blocks == 0 and num_basis_functions == 0)
+            (n_last_blocks_to_finetune == 0 and n_basis_functions == 0)
             or
-            (num_unfrozen_blocks > 0 and num_basis_functions > 0)
+            (n_last_blocks_to_finetune > 0 and n_basis_functions > 0)
         ), (
             "Invalid configuration: "
-            "num_unfrozen_blocks and num_basis_functions must be either "
+            "n_last_blocks_to_finetune and n_basis_functions must be either "
             "both zero or both strictly positive. "
-            f"Got num_unfrozen_blocks={num_unfrozen_blocks}, "
-            f"num_basis_functions={num_basis_functions}."
+            f"Got n_last_blocks_to_finetune={n_last_blocks_to_finetune}, "
+            f"n_basis_functions={n_basis_functions}."
         )
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
@@ -201,7 +201,7 @@ class VisionTransformer(nn.Module):
 
         num_patches = self.patch_embed.num_patches
 
-        self.num_unfrozen_blocks = num_unfrozen_blocks
+        self.n_last_blocks_to_finetune = n_last_blocks_to_finetune
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
@@ -210,7 +210,7 @@ class VisionTransformer(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         temp_blocks = []
         trainable_params = []
-        num_frozen = depth - self.num_unfrozen_blocks
+        num_frozen = depth - self.n_last_blocks_to_finetune
         
         for i in range(num_frozen):
             temp_blocks.append(Block(
@@ -221,7 +221,7 @@ class VisionTransformer(nn.Module):
         trainable_blocks = []
         for i in range(num_frozen, depth):
             trainable_blocks.append(BlockWithLearnableActFnc(
-                dim=embed_dim, num_heads=num_heads, num_basis_functions=num_basis_functions, 
+                dim=embed_dim, num_heads=num_heads, n_basis_functions=n_basis_functions, 
                 mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale, 
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
             ))

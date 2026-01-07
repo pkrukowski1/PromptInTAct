@@ -348,11 +348,11 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
 class ViTZoo(nn.Module):
     def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None,
-                 reg_type=None):
+                 reg_type=None, n_last_blocks_to_finetune=0):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        if reg_type == 'intact':
+        if reg_type in ['intact', 'intactpp']:
             self.classifier = nn.Sequential(
                 IntervalActivation(use_non_linear_transform=False),
                 nn.Linear(768, num_classes)
@@ -367,9 +367,10 @@ class ViTZoo(nn.Module):
 
         # get feature encoder
         if pt:
+            n_basis_functions = prompt_param[0] if reg_type == 'intactpp' else 0
             zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
-                                        num_heads=12, ckpt_layer=0,
-                                        drop_path_rate=0
+                                        num_heads=12, ckpt_layer=0, drop_path_rate=0, 
+                                        n_last_blocks_to_finetune=n_last_blocks_to_finetune, n_basis_functions=n_basis_functions
                                         )
             from timm.models import vit_base_patch16_224
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()
@@ -410,7 +411,8 @@ class ViTZoo(nn.Module):
         else:
             return out
             
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, reg_type=None):
+def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, 
+                 reg_type=None, n_last_blocks_to_finetune=0):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param,
-                  reg_type=reg_type)
+                  reg_type=reg_type, n_last_blocks_to_finetune=n_last_blocks_to_finetune)
 

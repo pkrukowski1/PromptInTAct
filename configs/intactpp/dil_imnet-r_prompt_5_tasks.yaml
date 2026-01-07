@@ -22,5 +22,5 @@ lambda_drift: 1.0
 lambda_slope_reg: 0.01
 domain_num: 5
 dil: True
-num_last_blocks_to_finetune: 2
+n_last_blocks_to_finetune: 2
 reg_type: intactpp
