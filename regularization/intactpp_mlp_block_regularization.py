@@ -24,7 +24,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
 
-        IntervalActivation -> Linear -> LearnableReLU
+        IntervalActivation -> Linear -> LearnableReLU -> IntervalActivation -> Linear
     """
     def __init__(self,
             lambda_var: float = 0.01,
