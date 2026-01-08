@@ -79,9 +79,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         """
         self.task_id = task_id
 
-        if task_id == 0:
-            return
-
         # 1. Map Layer References
         # interval_layers[0] guards linear_layers[0] (fc1)
         # interval_layers[1] guards linear_layers[1] (fc2)
@@ -109,6 +106,9 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         self.prev_linear_layer2  = self.prev_linear_layers[1]
 
         device = next(self.curr_linear_layers[0].parameters()).device
+
+        if task_id == 0:
+            return
 
         # ============================================================
         # Phase 1 — Global Statistics Collection (All Tokens)

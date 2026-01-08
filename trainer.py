@@ -160,8 +160,8 @@ class Trainer:
             # self.regularization = []
 
             # ViT regularization
+            assert args.n_last_blocks_to_finetune == 0
             for _ in range(args.n_last_blocks_to_finetune):
-                # TODO Change it later!!!
                 break
                 intactpp_for_vit_blocks = InTActPlusPlusMlpBlockRegularization(
                     lambda_var=args.lambda_var,
@@ -179,7 +179,6 @@ class Trainer:
         else:
             self.regularization = None
             
-
     def task_eval(self, t_index, local=False, task='acc'):
 
         val_name = self.task_names[t_index]
@@ -201,10 +200,8 @@ class Trainer:
         temp_dir = self.log_dir + '/temp/'
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
-        regularization = None
         # for each task
         for i in range(self.max_task):
-            
             if self.learner_config['reg_type'] == 'intact':
                 self.regularization.setup_task(
                     task_id=i,
@@ -214,14 +211,17 @@ class Trainer:
                         else self.learner.model.feat,
                     prompt=self.learner.model.prompt
                 )
-
-                regularization = self.regularization
             elif self.learner_config['reg_type'] == 'intactpp':
+                # TODO Here we should iterate over transformer blocks
+                # to include the regularization of the unfrozen ViT blocks, but
+                # currectly we don't need that
                 self.regularization.setup_task(
                     task_id=i,
                     mlp_layers=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
                         else self.learner.model.classifier
                 )
+
+            regularization = self.regularization
            
             # save current task index
             self.current_t_index = i

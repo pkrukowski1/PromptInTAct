@@ -18,6 +18,7 @@ N_CLASS=200
 # save directory
 # PLEASE CHANGE THIS!!!
 OUTDIR=./${DATASET}/15-task/intact
+# OUTDIR=/shared/results/pkrukowski/PromptBasedInTActPlusPlus/${DATASET}/15-task/intact
 
 # hard coded inputs
 GPUID='0'

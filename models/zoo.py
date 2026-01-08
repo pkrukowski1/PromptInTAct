@@ -354,17 +354,21 @@ class ViTZoo(nn.Module):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        if reg_type in ['intact', 'intactpp']:
+        if reg_type == 'intact':
             self.classifier = nn.Sequential(
                 IntervalActivation(use_non_linear_transform=False),
-                nn.Linear(768, num_classes)
+                nn.Linear(768, 100),
+                IntervalActivation(use_non_linear_transform=False),
+                nn.Linear(100, num_classes)
             )
-        elif reg_type in ['intactpp']:
-            IntervalActivation(use_non_linear_transform=False),
-            nn.Linear(768, 100),
-            LearnableReLU(100, prompt_param[0]),
-            IntervalActivation(),
-            nn.Linear(100, num_classes)
+        elif reg_type == 'intactpp':
+            self.classifier = nn.Sequential(
+                IntervalActivation(use_non_linear_transform=False),
+                nn.Linear(768, 100),
+                LearnableReLU(100, int(prompt_param[0])),
+                IntervalActivation(use_non_linear_transform=False),
+                nn.Linear(100, num_classes)
+            )
         else:
             self.classifier = nn.Sequential(
                 nn.Linear(768, num_classes)
@@ -375,7 +379,7 @@ class ViTZoo(nn.Module):
 
         # get feature encoder
         if pt:
-            n_basis_functions = prompt_param[0] if reg_type == 'intactpp' else 0
+            n_basis_functions = int(prompt_param[0]) if reg_type == 'intactpp' and n_last_blocks_to_finetune > 0 else 0
             zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
                                         num_heads=12, ckpt_layer=0, drop_path_rate=0, 
                                         n_last_blocks_to_finetune=n_last_blocks_to_finetune, n_basis_functions=n_basis_functions
