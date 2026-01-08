@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from .vit import VisionTransformer
 import copy
+
 from .layers.interval_activation import IntervalActivation
+from .layers.learnable_relu import LearnableReLU
 
 # Our method!
 class CodaPrompt(nn.Module):
@@ -357,6 +359,12 @@ class ViTZoo(nn.Module):
                 IntervalActivation(use_non_linear_transform=False),
                 nn.Linear(768, num_classes)
             )
+        elif reg_type in ['intactpp']:
+            IntervalActivation(use_non_linear_transform=False),
+            nn.Linear(768, 100),
+            LearnableReLU(100, prompt_param[0]),
+            IntervalActivation(),
+            nn.Linear(100, num_classes)
         else:
             self.classifier = nn.Sequential(
                 nn.Linear(768, num_classes)

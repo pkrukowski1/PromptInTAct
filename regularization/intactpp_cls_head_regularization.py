@@ -5,10 +5,12 @@ from typing import List
 import torch
 import torch.nn as nn
 
+from models.layers.interval_activation import IntervalActivation
+
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-class InTActPlusPlusMlpBlockRegularization(nn.Module):
+class InTActPlusPlusClsHeadRegularization(nn.Module):
     """
     InTAct++ Linear Regularization Module for Continual Learning.
 
@@ -24,7 +26,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
 
-        IntervalActivation -> Linear -> LearnableReLU -> IntervalActivation -> Linear
+        IntervalActivation -> Linear -> LearnableReLU
     """
     def __init__(self,
             lambda_var: float = 0.01,
@@ -43,7 +45,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         super().__init__()
         self.task_id = None
         log.info(
-            f"InTAct++ for MLP block regularization initialized with "
+            f"InTAct++ for classification head regularization initialized with "
             f"lambda_var={lambda_var}, "
             f"lambda_slope_reg={lambda_slope_reg}, "
             f"lambda_drift={lambda_drift}"
@@ -54,20 +56,15 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         self.lambda_slope_reg = lambda_slope_reg
         self.lambda_drift = lambda_drift
 
-        # References to current layers
-        self.interval_layers = []
-        self.curr_linear_layers = []
-        
-        # Frozen copies of previous layers
-        self.prev_linear_layers = nn.ModuleList()
-        
-        self.learnable_relu = None
+        self.prev_linear_layer: nn.Linear = None
+        self.curr_linear_layer: nn.Linear = None
+        self.interval_layer: IntervalActivation = None
 
     @torch.no_grad()
     def setup_task(
         self,
         task_id: int,
-        mlp_layers: List, # [Interval1, Linear1, LearnableReLU, Interval2, Linear2]
+        cls_head_layers: List, # [Interval, Linear]
     ) -> None:
         """
         Prepare the regularizer for a new task by anchoring hinges,
@@ -83,81 +80,47 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             return
 
         # 1. Map Layer References
-        # interval_layers[0] guards linear_layers[0] (fc1)
-        # interval_layers[1] guards linear_layers[1] (fc2)
-        self.interval_layers = [mlp_layers[0], mlp_layers[3]]
-        self.curr_linear_layers = [mlp_layers[1], mlp_layers[4]]
-        self.learnable_relu = mlp_layers[2]
+        if self.interval_layer is None:
+            self.interval_layer = cls_head_layers[0]
+        self.curr_linear_layer = cls_head_layers[1]
 
         # 2. Deepcopy and Freeze the previous task's weights
         # We use ModuleList so they are properly moved to the correct device
-        self.prev_linear_layers = nn.ModuleList([
-            deepcopy(self.curr_linear_layers[0]).eval(),
-            deepcopy(self.curr_linear_layers[1]).eval()
-        ])
+        self.prev_linear_layer = deepcopy(self.curr_linear_layer).eval()
         
-        for layer in self.prev_linear_layers:
-            for p in layer.parameters():
-                p.requires_grad = False
+        for p in self.prev_linear_layer.parameters():
+            p.requires_grad = False
 
-        self.interval_act_layer1 = self.interval_layers[0]
-        self.curr_linear_layer1  = self.curr_linear_layers[0]
-        self.prev_linear_layer1  = self.prev_linear_layers[0]
-
-        self.interval_act_layer2 = self.interval_layers[1]
-        self.curr_linear_layer2  = self.curr_linear_layers[1]
-        self.prev_linear_layer2  = self.prev_linear_layers[1]
-
-        device = next(self.curr_linear_layers[0].parameters()).device
+        device = next(self.curr_linear_layer.parameters()).device
 
         # ============================================================
         # Phase 1 — Global Statistics Collection (All Tokens)
         # ============================================================
-        all_inputs_fc1 = []
-        preacts_for_hinges = []
+        all_inputs_fc = []
 
-        for x in self.interval_layers[0].test_act_buffer:
+        for x in self.interval_layer.test_act_buffer:
             x = x.to(device)
-            all_inputs_fc1.append(x.detach())
-
-            z = self.prev_linear_layers[0](x)
-            preacts_for_hinges.append(z.detach())
+            all_inputs_fc.append(x.detach())
 
         # ============================================================
         # Phase 2 — Mean Centering (The "Tightness" Trick)
         # ============================================================
-        if all_inputs_fc1:
-            Z_all = torch.cat(all_inputs_fc1, dim=0)
+        if all_inputs_fc:
+            Z_all = torch.cat(all_inputs_fc, dim=0)
             
             # Calculate the global mean of ALL tokens in the dataset
             # This is used in 'forward' to center the interval expansion
             input_mean = Z_all.mean(dim=0)
-            self.register_buffer("input_mean_fc1", input_mean)
+            self.register_buffer("input_mean_fc", input_mean)
             
             log.info(f"Task {task_id}: Global mean for fc1 captured. Shape: {input_mean.shape}")
 
         # ============================================================
-        # Phase 3 — Anchor LearnableReLU Hinges
-        # ============================================================
-        if preacts_for_hinges:
-            Z_pre = torch.cat(preacts_for_hinges, dim=0)
-            
-            # Anchor hinges at the 95th percentile of old activations
-            self.learnable_relu.anchor_next_shift(
-                z=Z_pre, 
-                task_id=task_id, 
-                percentile=0.95
-            )
-            # Enable the next basis function for the new task
-            self.learnable_relu.set_no_used_basis_functions(task_id + 1)
-
-        # ============================================================
-        # Phase 4 — Finalize Interval Bounds
+        # Phase 3 — Finalize Interval Bounds
         # ============================================================
         # We trigger the reset_range for both Interval layers.
         # This computes the final [min, max] hypercube from the test_act_buffer
-        for layer in self.interval_layers:
-            layer.reset_range()
+        self.interval_layer.reset_range()
             
         log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
@@ -221,6 +184,8 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             
             dW2_pos, dW2_neg = torch.relu(delta_W2), torch.relu(-delta_W2)
 
+            # We usually skip mean centering for fc2 because LearnableReLU outputs 
+            # are inherently anchored by hinges and biased toward zero/positive.
             drift_low2 = dW2_pos @ lb2 - dW2_neg @ ub2 + delta_b2
             drift_up2  = dW2_pos @ ub2 - dW2_neg @ lb2 + delta_b2
             drift_loss += (drift_low2.pow(2).mean() + drift_up2.pow(2).mean())
