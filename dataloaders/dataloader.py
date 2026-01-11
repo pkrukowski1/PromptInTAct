@@ -382,7 +382,8 @@ class iDIL_Dataset(data.Dataset):
     def __init__(self, root,
                 train=True, transform=None,
                 download_flag=False, lab=True, swap_dset = None, 
-                tasks=None, seed=-1, rand_split=False, validation=False, kfolds=5):
+                tasks=None, seed=-1, rand_split=False, validation=False, kfolds=5,
+                data_root_dir='/shared/sets/datasets/'):
 
         # process rest of args
         self.root = os.path.expanduser(root)
@@ -393,6 +394,7 @@ class iDIL_Dataset(data.Dataset):
         self.t = -1
         self.tasks = tasks
         self.download_flag = download_flag
+        self.data_root_dir = data_root_dir
 
         # load dataset
         self.load()
@@ -506,9 +508,9 @@ class iDOMAIN_NET(iDIL_Dataset):
             for domain in domains:
                 data = []
                 target = []
-                image_list = open(os.path.join('/shared/sets/datasets/DomainNet',domain,domain+'_train.txt')).readlines()
+                image_list = open(os.path.join(self.data_root_dir, 'DomainNet', domain, domain+'_train.txt')).readlines()
                 for image in image_list:
-                    image_path = os.path.join('/shared/sets/datasets/DomainNet', image.split()[0])
+                    image_path = os.path.join(self.data_root_dir, 'DomainNet', image.split()[0])
                     data.append(image_path)
                     self.data.append(image_path)
                     target.append(int(image.split()[1]))
@@ -519,9 +521,9 @@ class iDOMAIN_NET(iDIL_Dataset):
             for domain in domains:
                 data = []
                 target = []
-                image_list = open(os.path.join('/shared/sets/datasets/DomainNet',domain,domain+'_test.txt')).readlines()
+                image_list = open(os.path.join(self.data_root_dir, 'DomainNet', domain, domain+'_test.txt')).readlines()
                 for image in image_list:
-                    image_path = os.path.join('/shared/sets/datasets/DomainNet', image.split()[0])
+                    image_path = os.path.join(self.data_root_dir, 'DomainNet', image.split()[0])
                     data.append(image_path)
                     self.data.append(image_path)
                     target.append(int(image.split()[1]))
@@ -629,7 +631,7 @@ class iIMAGENET_C(iDIL_Dataset):
         self.archive_targets = []
         self.data = []
         self.targets = []
-        self.data_root = "/data/imagenet-c"
+        self.data_root = os.path.join(self.data_root_dir, 'imagenet-c')
         self.image_list_root = "dataloaders/splits"
         
         mode = 'train' if (self.train or self.validation) else 'test'
@@ -712,8 +714,8 @@ class iIMAGENET_CR(iDIL_Dataset):
         self.archive_targets = []
         self.data = []
         self.targets = []
-        self.data_root_c = "/data/imagenet-c"
-        self.data_root_r = "/data/imagenet-r/"
+        self.data_root_c = os.path.join(self.data_root_dir, 'imagenet-c')
+        self.data_root_r = os.path.join(self.data_root_dir, 'imagenet-r')
         self.image_list_root = "dataloaders/splits"
         
         mode = 'train' if (self.train or self.validation) else 'test'

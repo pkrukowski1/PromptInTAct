@@ -47,6 +47,9 @@ def create_args():
     parser.add_argument('--use_align_loss', default=False, action='store_true', 
                         help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
 
+    # Data Args
+    parser.add_argument('--data_root_dir', type=str, default="/shared/sets/datasets/",
+                        help="Root directory where datasets are stored")
 
     # Config Arg
     parser.add_argument('--config', type=str, default="configs/config.yaml",

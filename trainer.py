@@ -120,10 +120,12 @@ class Trainer:
         test_transform  = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, resize_imnet=resize_imnet)
         self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
                             download_flag=True, transform=train_transform, 
-                            seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+                            seed=self.seed, rand_split=args.rand_split, validation=args.validation,
+                            data_root_dir=getattr(args, 'data_root_dir', '/shared/sets/datasets/'))
         self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
                                 download_flag=False, transform=test_transform, 
-                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation,
+                                data_root_dir=getattr(args, 'data_root_dir', '/shared/sets/datasets/'))
 
         # for oracle
         self.oracle_flag = args.oracle_flag
