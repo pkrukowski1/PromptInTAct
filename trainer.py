@@ -53,6 +53,16 @@ class Trainer:
             num_classes = 345
             self.dataset_size = [224,224,3]
             self.top_k = 1
+        elif args.dataset == 'ImageNet_C':
+            Dataset = dataloaders.iIMAGENET_C
+            num_classes = 200
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
+        elif args.dataset == 'ImageNet_CR':
+            Dataset = dataloaders.iIMAGENET_CR
+            num_classes = 200
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
         else:
             raise ValueError('Dataset not implemented!')
 

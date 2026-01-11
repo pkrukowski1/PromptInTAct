@@ -632,6 +632,189 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
         return img, target, self.t
 
 
+class iIMAGENET_C(iDIL_Dataset):
+    base_folder = 'imagenet-c'
+    im_size=224
+    nch=3
+
+    def load(self):
+        # 15 corruption types as domains
+        domains = ['defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+                   'contrast', 'elastic_transform', 'jpeg_compression', 'pixelate',
+                   'spatter', 'speckle_noise',
+                   'gaussian_noise', 'shot_noise',
+                   'fog', 'frost', 'snow']
+        
+        self.archive_data = []
+        self.archive_targets = []
+        self.data = []
+        self.targets = []
+        self.data_root = "/data/dataset/liuzichen/imagenet-c"
+        self.image_list_root = "dataloaders/splits"
+        
+        mode = 'train' if (self.train or self.validation) else 'test'
+        
+        for domain in domains:
+            data = []
+            target = []
+            # Check if split file exists, if not use imagenet-c_list directory
+            image_list_path = os.path.join(self.image_list_root, domain + "_" + mode + ".txt")
+            if not os.path.exists(image_list_path):
+                # Fallback to original path structure
+                image_list_path = os.path.join("dataloaders/splits/imagenet-c_list", domain + "_" + mode + ".txt")
+            
+            if os.path.exists(image_list_path):
+                image_list = open(image_list_path).readlines()
+                for line in image_list:
+                    parts = line.split()
+                    image_path = os.path.join(self.data_root, parts[0])
+                    data.append(image_path)
+                    self.data.append(image_path)
+                    target.append(int(parts[1]))
+                    self.targets.append(int(parts[1]))
+            
+            if len(data) > 0:
+                self.archive_data.append(data)
+                self.archive_targets.append(target)
+    
+    def load_dataset(self, t, train=True):
+        # Don't set transform here - it should be set externally with proper args
+        # This matches the original imagenet_c.py pattern where transforms are set via get_data_loaders
+        if train:
+            self.data = self.archive_data[t] 
+            self.targets = self.archive_targets[t] 
+        else:
+            self.data = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
+            self.targets = np.concatenate([self.archive_targets[s] for s in range(t+1)], axis=0)
+        self.t = t
+    
+    def __getitem__(self, index, simple = False):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is index of the target class
+        """
+        img_path, target = self.data[index], self.targets[index]
+        img = jpg_image_to_array(img_path)
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, target, self.t
+
+
+class iIMAGENET_CR(iDIL_Dataset):
+    base_folder = 'imagenet-cr'
+    im_size=224
+    nch=3
+
+    def load(self):
+        # 30 domains: alternating between ImageNet-C and ImageNet-R
+        # ImageNet-C domains (15)
+        domains_c = ['defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+                     'contrast', 'elastic_transform', 'jpeg_compression', 'pixelate',
+                     'spatter', 'speckle_noise',
+                     'gaussian_noise', 'shot_noise',
+                     'fog', 'frost', 'snow']
+        
+        # ImageNet-R domains (15)
+        domains_r = ['art', 'cartoon', 'deviantart', 'graffiti', 'embroidery',
+                     'graphic', 'origami', 'painting', 'misc',
+                     'sticker', 'sculpture', 'sketch', 'tattoo', 'toy',
+                     'videogame']
+        
+        self.archive_data = []
+        self.archive_targets = []
+        self.data = []
+        self.targets = []
+        self.data_root_c = "/data/dataset/liuzichen/imagenet-c"
+        self.data_root_r = "/data/dataset/liuzichen/imagenet-r"
+        self.image_list_root = "dataloaders/splits"
+        
+        mode = 'train' if (self.train or self.validation) else 'test'
+        
+        # Alternate between C and R domains (30 tasks total)
+        for i in range(15):
+            # Add ImageNet-C domain
+            data = []
+            target = []
+            domain = domains_c[i]
+            image_list_path = os.path.join(self.image_list_root, domain + "_" + mode + ".txt")
+            if not os.path.exists(image_list_path):
+                image_list_path = os.path.join("dataloaders/splits/imagenet-c_list", domain + "_" + mode + ".txt")
+            
+            if os.path.exists(image_list_path):
+                image_list = open(image_list_path).readlines()
+                for line in image_list:
+                    parts = line.split()
+                    image_path = os.path.join(self.data_root_c, parts[0])
+                    data.append(image_path)
+                    self.data.append(image_path)
+                    target.append(int(parts[1]))
+                    self.targets.append(int(parts[1]))
+            
+            if len(data) > 0:
+                self.archive_data.append(data)
+                self.archive_targets.append(target)
+            
+            # Add ImageNet-R domain
+            data = []
+            target = []
+            domain = domains_r[i]
+            image_list_path = os.path.join(self.image_list_root, domain + "_" + mode + ".txt")
+            if not os.path.exists(image_list_path):
+                image_list_path = os.path.join("dataloaders/splits/imagenet-r_list", domain + "_" + mode + ".txt")
+            
+            if os.path.exists(image_list_path):
+                image_list = open(image_list_path).readlines()
+                for line in image_list:
+                    parts = line.split()
+                    image_path = os.path.join(self.data_root_r, parts[0])
+                    data.append(image_path)
+                    self.data.append(image_path)
+                    target.append(int(parts[1]))
+                    self.targets.append(int(parts[1]))
+            
+            if len(data) > 0:
+                self.archive_data.append(data)
+                self.archive_targets.append(target)
+    
+    def load_dataset(self, t, train=True):
+        # Don't set transform here - it should be set externally with proper args
+        # This matches the original imagenet_cr.py pattern where transforms are set via get_data_loaders
+        if train:
+            self.data = self.archive_data[t] 
+            self.targets = self.archive_targets[t] 
+        else:
+            self.data = np.concatenate([self.archive_data[s] for s in range(t+1)], axis=0)
+            self.targets = np.concatenate([self.archive_targets[s] for s in range(t+1)], axis=0)
+        self.t = t
+    
+    def __getitem__(self, index, simple = False):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is index of the target class
+        """
+        img_path, target = self.data[index], self.targets[index]
+        img = jpg_image_to_array(img_path)
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, target, self.t
+
+
 def jpg_image_to_array(image_path):
     """
     Loads JPEG image into 3D Numpy array of shape 

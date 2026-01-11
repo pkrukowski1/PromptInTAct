@@ -23,7 +23,11 @@ dataset_stats = {
     'DIL_ImageNet_R': {
                  'size' : 224}, 
     'DomainNet': {
-                 'size' : 224},  
+                 'size' : 224},
+    'ImageNet_C': {
+                 'size' : 224},
+    'ImageNet_CR': {
+                 'size' : 224},
                 }
                 
 # transformations
@@ -32,9 +36,9 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
     # get out size
     crop_size = dataset_stats[dataset]['size']
 
-    # get mean and std
-    dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
-    dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
+    # get mean and std only if they exist
+    dset_mean = dataset_stats[dataset].get('mean', None)
+    dset_std = dataset_stats[dataset].get('std', None)
 
     if dataset == 'ImageNet32' or dataset == 'ImageNet84':
         transform_list.extend([
@@ -42,26 +46,41 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
         ])
 
     if phase == 'train':
-        transform_list.extend([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(dset_mean, dset_std),
-                            ])
-    else:
-        if dataset.startswith('ImageNet') or dataset == 'DIL_ImageNet_R' or dataset == 'DomainNet':
+        if dataset == 'ImageNet_C':
+            # ImageNet_C: resize to 230, then random crop to 224
             transform_list.extend([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
+                transforms.Resize(230),
+                transforms.RandomCrop(224),
+                transforms.RandomHorizontalFlip(0.5),
                 transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
+            ])
         else:
             transform_list.extend([
                 transforms.Resize(224),
+                transforms.CenterCrop(224),
+                transforms.RandomHorizontalFlip(0.5),
                 transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
+            ])
+        # Add normalization only if mean and std exist
+        if dset_mean is not None and dset_std is not None:
+            transform_list.append(transforms.Normalize(dset_mean, dset_std))
+    else:
+        if dataset == 'ImageNet_C':
+            # ImageNet_C: resize to 230, then center crop to 224
+            transform_list.extend([
+                transforms.Resize(230),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+            ])
+        else:
+            transform_list.extend([
+                transforms.Resize(224),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+            ])
+        # Add normalization only if mean and std exist
+        if dset_mean is not None and dset_std is not None:
+            transform_list.append(transforms.Normalize(dset_mean, dset_std))
 
 
     return transforms.Compose(transform_list)
