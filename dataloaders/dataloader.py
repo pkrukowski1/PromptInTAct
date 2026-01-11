@@ -584,26 +584,6 @@ class iDIL_IMAGENET_R(iDIL_Dataset):
                 self.archive_targets.append(target)
     
     def load_dataset(self, t, train=True):
-        train_transform = transforms.Compose([
-                transforms.Resize(256),
-                transforms.RandomCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406),
-                                    (0.229, 0.224, 0.225)),
-            ])
-
-        test_transform = transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406),
-                                    (0.229, 0.224, 0.225)),
-            ])
-        
-        self.transform = train_transform if train else test_transform
-
-
         if train:
             self.data = self.archive_data[t] 
             self.targets = self.archive_targets[t] 
