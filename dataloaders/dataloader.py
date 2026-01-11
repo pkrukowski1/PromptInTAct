@@ -649,7 +649,7 @@ class iIMAGENET_C(iDIL_Dataset):
         self.archive_targets = []
         self.data = []
         self.targets = []
-        self.data_root = "/data/dataset/liuzichen/imagenet-c"
+        self.data_root = "/data/imagenet-c"
         self.image_list_root = "dataloaders/splits"
         
         mode = 'train' if (self.train or self.validation) else 'test'
@@ -732,8 +732,8 @@ class iIMAGENET_CR(iDIL_Dataset):
         self.archive_targets = []
         self.data = []
         self.targets = []
-        self.data_root_c = "/data/dataset/liuzichen/imagenet-c"
-        self.data_root_r = "/data/dataset/liuzichen/imagenet-r"
+        self.data_root_c = "/data/imagenet-c"
+        self.data_root_r = "/data/imagenet-r/"
         self.image_list_root = "dataloaders/splits"
         
         mode = 'train' if (self.train or self.validation) else 'test'
