@@ -357,9 +357,7 @@ class ViTZoo(nn.Module):
         if reg_type == 'intact':
             self.classifier = nn.Sequential(
                 IntervalActivation(use_non_linear_transform=False),
-                nn.Linear(768, 100),
-                IntervalActivation(use_non_linear_transform=False),
-                nn.Linear(100, num_classes)
+                nn.Linear(768, num_classes)
             )
         elif reg_type == 'intactpp':
             self.classifier = nn.Sequential(
