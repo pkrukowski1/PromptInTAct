@@ -165,7 +165,6 @@ class Trainer:
                 break
                 intactpp_for_vit_blocks = InTActPlusPlusMlpBlockRegularization(
                     lambda_var=args.lambda_var,
-                    lambda_slope_reg=args.lambda_slope_reg,
                     lambda_drift=args.lambda_drift,
                 )
                 self.regularization.append(intactpp_for_vit_blocks)
@@ -173,7 +172,6 @@ class Trainer:
             # Classifier head regularization
             self.regularization = InTActPlusPlusMlpBlockRegularization(
                     lambda_var=args.lambda_var,
-                    lambda_slope_reg=args.lambda_slope_reg,
                     lambda_drift=args.lambda_drift,
                 )
         else:

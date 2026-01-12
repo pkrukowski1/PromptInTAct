@@ -19,7 +19,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
     - SVD-based low-dimensional subspace projection
     - Residual drift bounding for discarded dimensions
     - Variance regularization for representation compactness
-    - Slope regularization for LearnableReLU stability
 
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
@@ -28,7 +27,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
     """
     def __init__(self,
             lambda_var: float = 0.01,
-            lambda_slope_reg: float = 0.01,
             lambda_drift: float = 1.0,
         ) -> None:
         """
@@ -36,7 +34,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
 
         Args:
             lambda_var (float): Weight for activation variance regularization.
-            lambda_slope_reg (float): Weight for LearnableReLU slope regularization.
             lambda_drift (float): Weight for functional drift penalty.
         """
         
@@ -45,13 +42,11 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         log.info(
             f"InTAct++ for MLP block regularization initialized with "
             f"lambda_var={lambda_var}, "
-            f"lambda_slope_reg={lambda_slope_reg}, "
             f"lambda_drift={lambda_drift}"
         )
 
         self.task_id = None
         self.lambda_var = lambda_var
-        self.lambda_slope_reg = lambda_slope_reg
         self.lambda_drift = lambda_drift
 
         # References to current layers
@@ -168,7 +163,6 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
 
         Regularization components:
             - Activation variance minimization
-            - LearnableReLU slope regularization
             - Functional drift penalty (interval-based)
 
         Args:
@@ -189,11 +183,8 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
                 acts_flat = acts.view(-1, acts.size(-1)) 
                 var_loss += acts_flat.var(dim=0, unbiased=False).mean()
 
-        # 2. Slope Regularization (LearnableReLU Stability)
-        slope = self.learnable_relu.raw_scales[self.task_id]
-        slope_loss = slope.pow(2).mean()
 
-        # 3. Functional Drift Regularization (Recursive Chaining)
+        # 2. Functional Drift Regularization (Recursive Chaining)
         if self.task_id > 0:
             # --- LAYER 1: Linear1 (fc1) ---
             delta_W1 = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
@@ -226,5 +217,4 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             drift_loss += (drift_low2.pow(2).mean() + drift_up2.pow(2).mean())
 
         return loss + (self.lambda_var * var_loss) + \
-                      (self.lambda_slope_reg * slope_loss) + \
                       (self.lambda_drift * drift_loss)

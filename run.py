@@ -40,8 +40,6 @@ def create_args():
     parser.add_argument('--lambda_var', type=float, default=0.1, help="variance balancing when interval regularization is used")
     parser.add_argument('--lambda_drift', type=float, default=0.1, help="feature extractor output regularization balancing" \
         " when interval regularization is used")
-    parser.add_argument('--lambda_slope_reg', type=float, default=0.01, help="Minimization of the slope of the basis function" \
-        " for the current task")
     parser.add_argument('--lambda_feat', type=float, default=0.1, help="interval drift regularization balancing" \
         " when interval regularization is used")
     parser.add_argument('--use_align_loss', default=False, action='store_true', 

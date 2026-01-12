@@ -19,6 +19,5 @@ train_aug: True
 rand_split: True
 lambda_var: 0.01
 lambda_drift: 1.0
-lambda_slope_reg: 0.01
 n_last_blocks_to_finetune: 0
 reg_type: intactpp
