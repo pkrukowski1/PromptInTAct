@@ -1,223 +1,125 @@
 import torch
-from torch import nn
-from torch.nn import functional as F
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 class LearnableReLU(nn.Module):
     """
-    LearnableReLU: Monotone-by-construction ReLU basis expansion
-    for continual learning.
+    LearnableReLU: Monotone-by-construction activation via hinge expansion.
 
-    This module represents a *learnable monotone activation function*
-    constructed as a sum of shifted ReLU basis functions:
-
-        f(z) = ∑_{i=0}^{K-1} a_i · ReLU(z - c_i)
-
-    where:
-        • z is a preactivation (typically output of a Linear layer),
-        • c_i are non-decreasing hinge locations,
-        • a_i are learnable coefficients.
-
-    The coefficients are parameterized via a *cumulative-positive*
-    construction that guarantees:
-
-        ∂f(z) / ∂z ≥ 0   for all z
-
-    i.e. the function is monotone non-decreasing with respect to z.
-
-    This property is critical for:
-        • interval arithmetic–based drift bounds,
-        • exact preservation of old-task behavior,
-        • safe functional expansion across tasks.
-
-    Continual learning protocol:
-    ----------------------------
-    • Task 0 initializes the first hinge.
-    • Each new task:
-        - anchors a new hinge beyond old-task activations,
-        - activates one additional basis function,
-        - optionally freezes previous basis parameters.
-
-    Capacity grows *only* by adding new hinges, preventing
-    destructive interference with previously learned tasks.
+    Task semantics:
+        • Task 0: identity (no hinges)
+        • Each new task adds one hinge
+        • Maximum number of tasks = k
+        • Number of hinges = k - 1
     """
 
-    def __init__(self,
-        out_features: int,
-        k: int) -> None:
-        """
-        Initialize LearnableReLU.
-
-        Args:
-            out_features (int):
-                Number of output features.
-            k (int):
-                Maximum number of hinge basis functions
-                (typically the maximum number of tasks).
-        """
-
+    def __init__(self, out_features: int, k: int) -> None:
         super().__init__()
-        
+
         self.k = k
-        self.no_curr_used_basis_functions = 1
+        self.no_curr_used_hinges = 0
 
-        # Unconstrained parameters
-        # These parameters are NOT the actual coefficients a_i.
-        # Instead, they are transformed via a cumulative-softplus
-        # construction to guarantee monotone derivatives.
-        self.raw_scales = nn.ParameterList(
-            nn.Parameter(torch.zeros(1, out_features)) for _ in range(k)
+        self.raw_sums = nn.ParameterList(
+            nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
+        )
+        self.a_r_free = nn.ParameterList(
+            nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
         )
 
-        # Non-trainable shifts
-        self.register_buffer(
-            "cum_shifts",
-            torch.zeros(k, 1, out_features)
-        )
+        self.register_buffer("c_r", torch.zeros(k - 1, 1, out_features))
+        self.register_buffer("c_l", torch.zeros(k - 1, 1, out_features))
 
-    def cumulative_scales(self) -> torch.Tensor:
+    def set_no_used_basis_functions(self, task_id: int) -> None:
         """
-        Compute cumulative-positive scale values.
-
-        Returns:
-            Tensor S of shape (k, 1, out_features) such that:
-                S_i = softplus(raw_scales[i]) > 0
-
-        These values represent cumulative sums of basis coefficients
-        and are guaranteed to be non-negative.
+        task_id == number of active hinges
         """
-        raw = torch.stack(list(self.raw_scales), dim=0)
-        return F.softplus(raw)
-    
-    def basis_scales(self) -> torch.Tensor:
-        """
-        Compute actual basis coefficients a_i.
+        self.no_curr_used_hinges = task_id
 
-        The coefficients are defined as:
-            a_0 = S_0
-            a_i = S_i - S_{i-1}   for i > 0
-
-        This construction guarantees:
-            ∑_{j=0}^i a_j = S_i ≥ 0
-
-        Individual coefficients a_i may be negative, but all partial
-        sums are non-negative, ensuring a non-negative derivative of
-        the overall function.
-
-        Returns:
-            Tensor of shape (k, 1, out_features) containing a_i.
-        """
-        S = self.cumulative_scales()
-        a = S.clone()
-        a[1:] = S[1:] - S[:-1]
-        return a
-
-    
-    def set_no_used_basis_functions(self, value: int) -> None:
-        """
-        Set the number of currently active basis functions.
-
-        This method is typically called when a new task is introduced
-        in a continual learning setting, enabling an additional
-        ReLU basis function while keeping previously learned basis
-        functions unchanged.
-
-        Args:
-            value (int): Number of basis functions to be used.
-        """
-        self.no_curr_used_basis_functions = value
-    
     def freeze_basis_function(self, idx: int) -> None:
         """
-        Freeze a learnable ReLU basis function.
-
-        This method disables gradient updates for the scale
-        parameters associated with a specific basis function. It is
-        typically used in a continual learning setting to prevent
-        modification of basis functions learned for previous tasks
-        while allowing new basis functions to be trained.
-
-        Args:
-            idx (int): Index of the basis function to freeze.
+        Freeze hinge idx (0-based).
         """
-        self.raw_scales[idx].requires_grad_(False)
-    
+        self.raw_sums[idx].requires_grad_(False)
+        self.a_r_free[idx].requires_grad_(False)
+
     @torch.no_grad()
-    def anchor_next_shift(self, z: torch.Tensor, task_id: int, percentile: float=0.95) -> None:
+    def anchor_next_shift(
+        self,
+        z: torch.Tensor,
+        task_id: int,
+        percentile: float = 0.95,
+    ) -> None:
         """
-        Anchor the hinge location for a new task.
-
-        The new hinge c_task_id is placed at a high percentile of the
-        preactivation distribution of the completed task, ensuring that:
-
-            ReLU(z - c_task_id) = 0   for (almost) all old-task data
-
-        Additionally, hinge locations are enforced to be monotone
-        non-decreasing:
-
-            c_0 ≤ c_1 ≤ ... ≤ c_T
-
-        Args:
-            z (Tensor):
-                Collected preactivations of shape (N, out_features).
-            task_id (int):
-                Index of the newly introduced task.
-            percentile (float):
-                Upper percentile used to anchor the hinge.
+        Anchors hinge (task_id - 1) using PREACTIVATIONS.
         """
-        # If z is [B, N, D], flatten to [B*N, D]
+
         if z.dim() == 3:
             z = z.reshape(-1, z.size(-1))
-            
-        P = torch.quantile(z, percentile, dim=0, keepdim=True) # Result: [1, D]
-        
-        if task_id == 0:
-            self.cum_shifts[0] = P
+
+        P_high = torch.quantile(z, percentile, dim=0, keepdim=True)
+        P_low = torch.quantile(z, 1.0 - percentile, dim=0, keepdim=True)
+
+        idx = task_id - 1  # hinge index
+
+        if task_id == 1:
+            self.c_r[idx] = P_high
+            self.c_l[idx] = P_low
         else:
-            # Ensure P is [1, D] so it fits into the [K, 1, D] buffer correctly
-            self.cum_shifts[task_id] = torch.maximum(
-                P, self.cum_shifts[task_id - 1]
-            )
+            self.c_r[idx] = torch.maximum(P_high, self.c_r[idx - 1])
+            self.c_l[idx] = torch.minimum(P_low,  self.c_l[idx - 1])
+
+    def get_task_coefficients(self):
+        """
+        Constructs coefficients guaranteeing monotonicity.
+
+        Returns:
+            a_r, a_l : shape [k-1, 1, D]
+        """
+        # S: [k-1, 1, D]
+        raw_s = torch.stack(list(self.raw_sums), dim=0)
+        S = F.softplus(raw_s)
+
+        # To calculate delta_S_i = S_i - S_{i-1}:
+        # S_prev for the first hinge is 1.0 (Identity)
+        S_shifted = torch.cat([torch.ones_like(S[:1]), S[:-1]], dim=0)
+        delta_S = S - S_shifted # [k-1, 1, D]
+
+        a_r = torch.stack(list(self.a_r_free), dim=0)
+        # Requirement: a_r - a_l = delta_S => a_l = a_r - delta_S
+        a_l = a_r - delta_S
+
+        return a_r, a_l
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass.
-
-        Computes:
-            f(x) = ∑ a_i · ReLU(x - c_i)
-
-        using only the currently active basis functions.
-
-        Due to the cumulative-positive construction of a_i,
-        the function is guaranteed to be monotone with respect
-        to its input.
-
-        Args:
-            x (Tensor):
-                Input tensor of shape (batch_size, out_features).
-
-        Returns:
-            Tensor of shape (batch_size, out_features).
+        f(z) = z
+             + Σ a^R_i ReLU(z - c^R_i)
+             + Σ a^L_i ReLU(c^L_i - z)
         """
-        # a and c are [K, 1, out_features]
-        a = self.basis_scales()[:self.no_curr_used_basis_functions]
-        c = self.cum_shifts[:self.no_curr_used_basis_functions]
-        
-        # x: [B, D] or [B, N, D]
-        # x_unsqueezed: [1, B, D] or [1, B, N, D]
-        x_unsqueezed = x.unsqueeze(0)
-        
-        # c needs to be [K, 1, 1, D] if x is 3D, or [K, 1, D] if x is 2D
-        # We can use .view() or simply ensure c matches the tail
-        # But the easiest way is to let PyTorch handle it by unsqueezing c:
-        
-        # Ensuring c and a can broadcast over the 'Tokens' dimension if it exists:
-        if x.dim() == 3:
-            # c, a: [K, 1, 1, out_features]
-            c = c.unsqueeze(2)
-            a = a.unsqueeze(2)
 
-        # Result before sum: [K, B, (N), D]
-        res = a * torch.relu(x_unsqueezed - c)
-        
-        return res.sum(dim=0)
-        
+        out = x
+
+        if self.no_curr_used_hinges == 0:
+            return out
+
+        a_r_all, a_l_all = self.get_task_coefficients()
+
+        a_r = a_r_all[:self.no_curr_used_hinges]
+        a_l = a_l_all[:self.no_curr_used_hinges]
+        c_r = self.c_r[:self.no_curr_used_hinges]
+        c_l = self.c_l[:self.no_curr_used_hinges]
+
+        x_u = x.unsqueeze(0)
+
+        if x.dim() == 3:
+            a_r = a_r.unsqueeze(2)
+            a_l = a_l.unsqueeze(2)
+            c_r = c_r.unsqueeze(2)
+            c_l = c_l.unsqueeze(2)
+
+        term_r = a_r * F.relu(x_u - c_r)
+        term_l = a_l * F.relu(c_l - x_u)
+
+        out = out + term_r.sum(dim=0) + term_l.sum(dim=0)
+        return out

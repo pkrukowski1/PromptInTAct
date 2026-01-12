@@ -20,12 +20,14 @@ class IntervalActivation(nn.Module):
         min (Optional[torch.Tensor]): Lower bound per neuron (updated via reset_range).
         max (Optional[torch.Tensor]): Upper bound per neuron (updated via reset_range).
         curr_task_last_batch (Optional[torch.Tensor]): Stores last batch activations during training.
+        maintain_test_act_buffer (bool, optional): If True, test activation buffer is maintained to calculate bounds.
     """
 
     def __init__(self,
         lower_percentile: float = 0.05,
         upper_percentile: float = 0.95,
-        use_non_linear_transform: bool = False
+        use_non_linear_transform: bool = False,
+        maintain_test_act_buffer: bool = True
     ) -> None:
         """
         Initializes the IntervalActivation layer.
@@ -34,6 +36,7 @@ class IntervalActivation(nn.Module):
             lower_percentile (float, optional): Lower percentile for min bound. Defaults to 0.05.
             upper_percentile (float, optional): Upper percentile for max bound. Defaults to 0.95.
             use_non_linear_transform (bool, optional): Whether to apply Leaky ReLU activation. Defaults to True.
+            maintain_test_act_buffer (bool, optional): If True, test activation buffer is maintained to calculate bounds.
         """
 
         super().__init__()
@@ -42,6 +45,7 @@ class IntervalActivation(nn.Module):
         self.lower_percentile = lower_percentile
         self.upper_percentile = upper_percentile
         self.use_non_linear_transform = use_non_linear_transform
+        self.maintain_test_act_buffer = maintain_test_act_buffer
 
         self.min = None
         self.max = None
@@ -109,8 +113,7 @@ class IntervalActivation(nn.Module):
 
         if self.training:
             self.curr_task_last_batch = out.view(-1, out.size(-1))        
-        else:
-            
+        elif self.maintain_test_act_buffer:
             self.test_act_buffer.append(out.detach().cpu().view(-1, out.size(-1)))
 
         # Return 'out' with its ORIGINAL shape [Batch, Tokens, Hidden]
