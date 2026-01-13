@@ -114,7 +114,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             if all_inputs_fc:
                 Z_all = torch.cat(all_inputs_fc, dim=0)
                 input_mean = Z_all.mean(dim=0)
-                self.register_buffer("input_mean_fc", input_mean)
+                self.register_buffer("input_mean_fc", input_mean.to(device))
                 
                 log.info(f"Task {task_id}: Global mean for fc captured. Shape: {input_mean.shape}")
 
@@ -173,8 +173,8 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         for interval_layer in [self.interval_layer1, self.interval_layer2]:
             acts = interval_layer.curr_task_last_batch
             if acts is not None:
-                acts_flat = acts.view(-1, acts.size(-1)) 
-                var_loss += acts_flat.var(dim=0, unbiased=False).mean()
+                acts_flat = acts.reshape(-1, acts.size(-1)) 
+                var_loss += acts_flat.var(dim=0).mean()
 
 
         # 2. Functional drift regularization
