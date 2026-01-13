@@ -11,7 +11,7 @@ from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
 from regularization.intact_regularization import InTActRegularization
-from regularization.intactpp_mlp_block_regularization import InTActPlusPlusMlpBlockRegularization
+from regularization.intactpp_cls_head_regularization import InTActPlusPlusClsHeadRegularization
 
 class Trainer:
 
@@ -170,7 +170,7 @@ class Trainer:
                 self.regularization.append(intactpp_for_vit_blocks)
 
             # Classifier head regularization
-            self.regularization = InTActPlusPlusMlpBlockRegularization(
+            self.regularization = InTActPlusPlusClsHeadRegularization(
                     lambda_var=args.lambda_var,
                     lambda_drift=args.lambda_drift,
                 )
@@ -210,12 +210,12 @@ class Trainer:
                     prompt=self.learner.model.prompt
                 )
             elif self.learner_config['reg_type'] == 'intactpp':
-                # TODO Here we should iterate over transformer blocks
+                # NOTE Here we should iterate over transformer blocks
                 # to include the regularization of the unfrozen ViT blocks, but
                 # currectly we don't need that
                 self.regularization.setup_task(
                     task_id=i,
-                    mlp_layers=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
+                    cls_layers=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
                         else self.learner.model.classifier
                 )
 

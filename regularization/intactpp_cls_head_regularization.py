@@ -82,6 +82,11 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         self.learnable_relu = cls_layers[2]
         self.interval_layer2 = cls_layers[3]
 
+        assert isinstance(self.interval_layer1, IntervalActivation)
+        assert isinstance(self.curr_linear_layer, nn.Linear)
+        assert isinstance(self.learnable_relu, LearnableReLU)
+        assert isinstance(self.interval_layer2, IntervalActivation)
+
         # 2. Deepcopy and Freeze the previous task's weights
         # We use ModuleList so they are properly moved to the correct device
         self.prev_linear_layer = deepcopy(self.curr_linear_layer).eval()
@@ -140,12 +145,13 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             # ============================================================
             # Phase 4 — Finalize Interval Bounds
             # ============================================================
-            # We trigger the reset_range for the first interval layer.
+            # We trigger the reset_range for the interval layers.
             # This computes the final [min, max] hypercube from the test_act_buffer.
             # Moreover, we don't have to do it for the second interval layer as it
             # only is leveraged to capture current batch of data to perform variance
             # regularization.
-            self.interval_layer1.reset_range()
+            for interval_layer in [self.interval_layer1, self.interval_layer2]:
+                interval_layer.reset_range()
                 
             log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
