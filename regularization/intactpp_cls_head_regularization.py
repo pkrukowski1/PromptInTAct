@@ -11,16 +11,16 @@ from models.layers.learnable_relu import LearnableReLU
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-class InTActPlusPlusMlpBlockRegularization(nn.Module):
+class InTActPlusPlusClsHeadRegularization(nn.Module):
     """
     InTAct++ Linear Regularization Module for Continual Learning.
 
     This module implements a *functional drift regularizer* that constrains how
-    much a linear layer's output can change across tasks. It combines:
+    much a classification head output can change across past tasks. It combines:
 
     - Interval Arithmetic (IA) for worst-case drift bounds
-    - Residual drift bounding for discarded dimensions
     - Variance regularization for representation compactness
+    - Learnable activation function to increase plasticity
 
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
@@ -55,12 +55,12 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         self.interval_layer1: IntervalActivation = None
         self.interval_layer2: IntervalActivation = None
         self.curr_linear_layer: nn.Linear = None
+        self.learnable_relu: LearnableReLU = None
         
         # Frozen copy of the previous layer
         self.prev_linear_layer: nn.Linear = None
         
-        self.learnable_relu: LearnableReLU = None
-
+        
     @torch.no_grad()
     def setup_task(
         self,
@@ -140,8 +140,11 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             # ============================================================
             # Phase 4 — Finalize Interval Bounds
             # ============================================================
-            # We trigger the reset_range for the first linear layer.
-            # This computes the final [min, max] hypercube from the test_act_buffer
+            # We trigger the reset_range for the first interval layer.
+            # This computes the final [min, max] hypercube from the test_act_buffer.
+            # Moreover, we don't have to do it for the second interval layer as it
+            # only is leveraged to capture current batch of data to perform variance
+            # regularization.
             self.interval_layer1.reset_range()
                 
             log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
@@ -153,7 +156,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
 
         Regularization components:
             - Activation variance minimization
-            - Functional drift penalty (interval-based)
+            - Functional drift penalty (using IA)
 
         Args:
             x (torch.Tensor): Input batch.
@@ -166,7 +169,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         var_loss = torch.tensor(0.0, device=x.device)
         drift_loss = torch.tensor(0.0, device=x.device)
 
-        # 1. Variance Regularization (Compactness)
+        # 1. Variance regularization (compactness)
         for interval_layer in [self.interval_layer1, self.interval_layer2]:
             acts = interval_layer.curr_task_last_batch
             if acts is not None:
@@ -174,7 +177,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
                 var_loss += acts_flat.var(dim=0, unbiased=False).mean()
 
 
-        # 2. Functional Drift Regularization (Recursive Chaining)
+        # 2. Functional drift regularization
         if self.task_id > 0:
             # --- LAYER 1: Linear1 (fc1) ---
             delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight

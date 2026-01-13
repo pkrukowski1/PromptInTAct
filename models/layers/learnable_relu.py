@@ -93,9 +93,9 @@ class LearnableReLU(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        f(z) = z
-             + Σ a^R_i ReLU(z - c^R_i)
-             + Σ a^L_i ReLU(c^L_i - z)
+        f(x) = x
+             + Σ a^R_i ReLU(x - c^R_i)
+             - Σ a^L_i ReLU(c^L_i - x)
         """
 
         out = x
@@ -121,5 +121,5 @@ class LearnableReLU(nn.Module):
         term_r = a_r * F.relu(x_u - c_r)
         term_l = a_l * F.relu(c_l - x_u)
 
-        out = out + term_r.sum(dim=0) + term_l.sum(dim=0)
+        out = out + term_r.sum(dim=0) - term_l.sum(dim=0)
         return out
