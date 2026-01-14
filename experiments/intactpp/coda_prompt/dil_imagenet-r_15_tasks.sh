@@ -37,8 +37,8 @@ mkdir -p $OUTDIR
 #    arg 1 = prompt component pool size
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
-LAMBDA_VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
-LAMBDA_DRIFT_SCALES=("0.001" "0.01" "0.1" "1.0")
+LAMBDA_VAR_SCALES=("0.001" "0.0001" "0.01" "0.1" "1.0")
+LAMBDA_DRIFT_SCALES=("0.001" "0.0001" "0.01" "0.1" "1.0")
 
 
 
