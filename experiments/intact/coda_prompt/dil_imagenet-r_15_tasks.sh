@@ -8,7 +8,7 @@
 
 
 
-source activate prompt_intact
+source activate intact_plus_plus
 
 # bash experiments/imagenet-r.sh
 # experiment settings
