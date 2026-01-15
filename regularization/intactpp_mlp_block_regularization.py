@@ -119,20 +119,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             preacts_for_hinges.append(z.detach())
 
         # ============================================================
-        # Phase 2 — Mean Centering (The "Tightness" Trick)
-        # ============================================================
-        if all_inputs_fc1:
-            Z_all = torch.cat(all_inputs_fc1, dim=0)
-            
-            # Calculate the global mean of ALL tokens in the dataset
-            # This is used in 'forward' to center the interval expansion
-            input_mean = Z_all.mean(dim=0)
-            self.register_buffer("input_mean_fc1", input_mean)
-            
-            log.info(f"Task {task_id}: Global mean for fc1 captured. Shape: {input_mean.shape}")
-
-        # ============================================================
-        # Phase 3 — Anchor LearnableReLU Hinges
+        # Phase 2 — Anchor LearnableReLU Hinges
         # ============================================================
         if preacts_for_hinges:
             Z_pre = torch.cat(preacts_for_hinges, dim=0)
@@ -147,7 +134,7 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             self.learnable_relu.set_no_used_basis_functions(task_id + 1)
 
         # ============================================================
-        # Phase 4 — Finalize Interval Bounds
+        # Phase 3 — Finalize Interval Bounds
         # ============================================================
         # We trigger the reset_range for both Interval layers.
         # This computes the final [min, max] hypercube from the test_act_buffer
@@ -180,8 +167,9 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
         for interval_layer in self.interval_layers:
             acts = interval_layer.curr_task_last_batch
             if acts is not None:
-                acts_flat = acts.view(-1, acts.size(-1)) 
-                var_loss += acts_flat.var(dim=0, unbiased=False).mean()
+                acts_flat = acts.view(acts.size(0), -1)
+                batch_var = acts_flat.var(dim=0, unbiased=False).mean()
+                var_loss += batch_var
 
 
         # 2. Functional Drift Regularization (Recursive Chaining)
@@ -189,17 +177,14 @@ class InTActPlusPlusMlpBlockRegularization(nn.Module):
             # --- LAYER 1: Linear1 (fc1) ---
             delta_W1 = self.curr_linear_layer1.weight - self.prev_linear_layer1.weight
             delta_b1 = self.curr_linear_layer1.bias - self.prev_linear_layer1.bias
-            
-            mean_drift1 = delta_W1 @ self.input_mean_fc1.to(x.device)
-            effective_bias1 = delta_b1 + mean_drift1
 
             lb1 = self.interval_act_layer1.min.to(x.device)
             ub1 = self.interval_act_layer1.max.to(x.device)
             
             dW1_pos, dW1_neg = torch.relu(delta_W1), torch.relu(-delta_W1)
 
-            drift_low1 = dW1_pos @ lb1 - dW1_neg @ ub1 + effective_bias1
-            drift_up1  = dW1_pos @ ub1 - dW1_neg @ lb1 + effective_bias1
+            drift_low1 = dW1_pos @ lb1 - dW1_neg @ ub1 + delta_b1
+            drift_up1  = dW1_pos @ ub1 - dW1_neg @ lb1 + delta_b1
             drift_loss += (drift_low1.pow(2).mean() + drift_up1.pow(2).mean())
 
             # --- LAYER 2: Linear2 (fc2) ---
