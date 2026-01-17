@@ -25,7 +25,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
 
-        IntervalActivation -> Linear -> LearnableReLU -> IntervalActivation -> Softmax
+    IntervalActivation -> LearnableReLU -> IntervalActivation -> Linear -> Softmax
     """
     def __init__(self,
             lambda_var: float = 0.01,
@@ -65,7 +65,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
     def setup_task(
         self,
         task_id: int,
-        cls_layers: List, # [Interval, Linear, LearnableReLU, Interval]
+        cls_layers: List  # [Interval, LearnableReLU, Interval, Linear]
     ) -> None:
         """
         Prepare the regularizer for a new task.
@@ -78,14 +78,14 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
 
         # 1. Map Layer References
         self.interval_layer1 = cls_layers[0]
-        self.curr_linear_layer = cls_layers[1]
-        self.learnable_relu = cls_layers[2]
-        self.interval_layer2 = cls_layers[3]
+        self.learnable_relu = cls_layers[1]
+        self.interval_layer2 = cls_layers[2]
+        self.curr_linear_layer = cls_layers[3]
 
         assert isinstance(self.interval_layer1, IntervalActivation)
+        assert isinstance(self.interval_layer2, IntervalActivation)
         assert isinstance(self.curr_linear_layer, nn.Linear)
         assert isinstance(self.learnable_relu, LearnableReLU)
-        assert isinstance(self.interval_layer2, IntervalActivation)
 
         # 2. Deepcopy and Freeze the previous task's weights
         # We use ModuleList so they are properly moved to the correct device
@@ -102,29 +102,14 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             # ============================================================
             # Phase 1 — Global Statistics Collection (All Tokens)
             # ============================================================
-            all_inputs_fc = []
             preacts_for_hinges = []
 
-            # We need to do it only for the first interval layer
             for x in self.interval_layer1.test_act_buffer:
                 x = x.to(device)
-                all_inputs_fc.append(x.detach())
-
-                z = self.prev_linear_layer(x)
-                preacts_for_hinges.append(z.detach())
+                preacts_for_hinges.append(x.detach())
 
             # ============================================================
-            # Phase 2 — Mean Centering (The "Tightness" Trick)
-            # ============================================================
-            if all_inputs_fc:
-                Z_all = torch.cat(all_inputs_fc, dim=0)
-                input_mean = Z_all.mean(dim=0)
-                self.register_buffer("input_mean_fc", input_mean.to(device))
-                
-                log.info(f"Task {task_id}: Global mean for fc captured. Shape: {input_mean.shape}")
-
-            # ============================================================
-            # Phase 3 — Anchor LearnableReLU Hinges
+            # Phase 2 — Anchor LearnableReLU Hinges
             # ============================================================
             if preacts_for_hinges:
                 Z_pre = torch.cat(preacts_for_hinges, dim=0)
@@ -143,15 +128,11 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
 
 
             # ============================================================
-            # Phase 4 — Finalize Interval Bounds
+            # Phase 3 — Finalize Interval Bounds
             # ============================================================
             # We trigger the reset_range for the interval layers.
             # This computes the final [min, max] hypercube from the test_act_buffer.
-            # Moreover, we don't have to do it for the second interval layer as it
-            # only is leveraged to capture current batch of data to perform variance
-            # regularization.
-            for interval_layer in [self.interval_layer1, self.interval_layer2]:
-                interval_layer.reset_range()
+            self.interval_layer2.reset_range()
                 
             log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
@@ -172,35 +153,32 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             torch.Tensor: Total loss.
         """
 
-        var_loss = torch.tensor(0.0, device=x.device)
-        drift_loss = torch.tensor(0.0, device=x.device)
+        zero = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+        var_loss = zero.clone()
+        drift_loss = zero.clone()
 
         # 1. Variance regularization (compactness)
         for interval_layer in [self.interval_layer1, self.interval_layer2]:
             acts = interval_layer.curr_task_last_batch
-            if acts is not None:
-                acts_flat = acts.reshape(-1, acts.size(-1)) 
-                var_loss += acts_flat.var(dim=0).mean()
-
+            acts_flat = acts.view(acts.size(0), -1)
+            batch_var = acts_flat.var(dim=0, unbiased=False).mean()
+            var_loss += batch_var
 
         # 2. Functional drift regularization
         if self.task_id > 0:
-            # --- LAYER 1: Linear1 (fc1) ---
             delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight
             delta_b = self.curr_linear_layer.bias - self.prev_linear_layer.bias
-            
-            mean_drift = delta_W @ self.input_mean_fc.to(x.device)
-            effective_bias = delta_b + mean_drift
 
-            lb = self.interval_layer1.min.to(x.device)
-            ub = self.interval_layer1.max.to(x.device)
+            lb = self.interval_layer2.min.to(x.device)
+            ub = self.interval_layer2.max.to(x.device)
             
-            dW1_pos, dW1_neg = torch.relu(delta_W), torch.relu(-delta_W)
+            dW_pos, dW_neg = torch.relu(delta_W), torch.relu(-delta_W)
 
-            drift_low = dW1_pos @ lb - dW1_neg @ ub + effective_bias
-            drift_up  = dW1_pos @ ub - dW1_neg @ lb + effective_bias
+            drift_low = dW_pos @ lb - dW_neg @ ub + delta_b
+            drift_up  = dW_pos @ ub - dW_neg @ lb + delta_b
             drift_loss += (drift_low.pow(2).mean() + drift_up.pow(2).mean())
 
-
-        return loss + (self.lambda_var * var_loss) + \
-                      (self.lambda_drift * drift_loss)
+        return loss + \
+                self.lambda_var * var_loss + \
+                self.lambda_drift * drift_loss
+            
