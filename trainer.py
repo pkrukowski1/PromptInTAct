@@ -145,7 +145,8 @@ class Trainer:
                         'prompt_param':[self.num_tasks,args.prompt_param],
                         'reg_type': args.reg_type,
                         'dil': self.dil,
-                        'n_last_blocks_to_finetune': args.n_last_blocks_to_finetune
+                        'n_last_blocks_to_finetune': args.n_last_blocks_to_finetune,
+                        'max_slope': args.max_slope
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)

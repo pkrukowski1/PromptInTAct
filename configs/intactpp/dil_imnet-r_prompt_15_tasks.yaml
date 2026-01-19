@@ -22,4 +22,5 @@ lambda_drift: 1.0
 domain_num: 15
 dil: True
 n_last_blocks_to_finetune: 0
+max_slope: 1.0
 reg_type: intactpp
