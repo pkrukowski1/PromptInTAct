@@ -5,13 +5,10 @@ import torch.nn.functional as F
 
 class LearnableReLU(nn.Module):
     """
-    LearnableReLU: Monotone-by-construction activation via hinge expansion.
+    LearnableReLU with guaranteed sublinear growth:
+        0 <= f'(x) <= 1
 
-    Task semantics:
-        • Task 0: identity (no hinges)
-        • Each new task adds one hinge
-        • Maximum number of tasks = k
-        • Number of hinges = k - 1
+    This prevents amplification and makes IA drift-safe by construction.
     """
 
     def __init__(self, out_features: int, k: int) -> None:
@@ -21,19 +18,13 @@ class LearnableReLU(nn.Module):
         self.out_features = out_features
         self.no_curr_used_hinges = 0
 
-        # We learn the slopes for the Left and Right regions explicitly.
-        # Initialized to give a slope of ~1.0 (Softplus(0.54) approx 1.0)
-        # to start close to Identity.
-        init_val = 0.5413 
-        
-        self.raw_slopes_r = nn.ParameterList(
-            nn.Parameter(torch.ones(1, out_features) * init_val) for _ in range(k - 1)
+        # Raw decay parameters
+        self.raw_decay_r = nn.ParameterList(
+            nn.Parameter(torch.ones(1, out_features) * -5.0) for _ in range(k - 1)
         )
-        self.raw_slopes_l = nn.ParameterList(
-            nn.Parameter(torch.ones(1, out_features) * init_val) for _ in range(k - 1)
+        self.raw_decay_l = nn.ParameterList(
+            nn.Parameter(torch.ones(1, out_features) * -5.0) for _ in range(k - 1)
         )
-
-        self.register_buffer("base_slope", torch.ones(1, out_features))
 
         self.register_buffer("c_r", torch.zeros(k - 1, 1, out_features))
         self.register_buffer("c_l", torch.zeros(k - 1, 1, out_features))
@@ -48,8 +39,8 @@ class LearnableReLU(nn.Module):
         """
         Freeze hinge idx (0-based).
         """
-        self.raw_slopes_r[idx].requires_grad_(False)
-        self.raw_slopes_l[idx].requires_grad_(False)
+        self.raw_decay_r[idx].requires_grad_(False)
+        self.raw_decay_l[idx].requires_grad_(False)
         
 
     @torch.no_grad()
@@ -78,41 +69,34 @@ class LearnableReLU(nn.Module):
             self.c_r[idx] = torch.maximum(P_high, self.c_r[idx - 1])
             self.c_l[idx] = torch.minimum(P_low,  self.c_l[idx - 1])
 
-    def get_coefficients(self):
+    def get_coefficients(self) -> None:
         """
-        Convert positive slopes into additive coefficients for ReLUs.
-        
-        Slope Sequence: ... s_L2, s_L1, (base=1), s_R1, s_R2 ...
-        
-        The coefficient 'a' for a hinge is the CHANGE in slope.
-        a_R[i] = slope_R[i] - slope_R[i-1]
+        Calculates coefficients a_r, a_l such that:
+        1. All a_i <= 0 (Sublinear growth)
+        2. 1 + Sum(a_i) >= 0.01 (Strict Monotonicity)
         """
-        
-        # 1. Enforce positivity of slopes
-        s_r = [F.softplus(p) for p in self.raw_slopes_r]
-        s_l = [F.softplus(p) for p in self.raw_slopes_l]
-        
-        if not s_r:
+        raw_decays_r = [F.softplus(p) for p in self.raw_decay_r]
+        raw_decays_l = [F.softplus(p) for p in self.raw_decay_l]
+
+        if not raw_decays_r:
             return None, None
 
-        S_R = torch.stack(s_r, dim=0)
-        S_L = torch.stack(s_l, dim=0)
+        D_R = torch.stack(raw_decays_r, dim=0) 
+        D_L = torch.stack(raw_decays_l, dim=0)
 
-        # 2. Prepend the "previous" slope. 
+        # 2. Compute Normalization
+        sum_R = D_R.sum(dim=0, keepdim=True)
+        sum_L = D_L.sum(dim=0, keepdim=True)
         
-        # Right side: slopes define segments moving away from center
-        prev_S_R = torch.cat([self.base_slope.unsqueeze(0), S_R[:-1]], dim=0)
-        a_r = S_R - prev_S_R
+        limit = 0.99
+        factor_R = torch.maximum(torch.ones_like(sum_R), sum_R / limit)
+        factor_L = torch.maximum(torch.ones_like(sum_L), sum_L / limit)
         
-        # Left side: slopes define segments moving away from center (towards -inf)
-        # Note: The "direction" of integration for the formula requires careful sign handling.
-        # Formula: - a_L * ReLU(c_L - x)
-        # As x decreases (moves left), the slope becomes (Base + Sum(a_L)).
-        # We want the resulting slope to match S_L.
-        prev_S_L = torch.cat([self.base_slope.unsqueeze(0), S_L[:-1]], dim=0)
-        a_l = S_L - prev_S_L
+        final_D_R = D_R / factor_R
+        final_D_L = D_L / factor_L
 
-        return a_r, a_l
+        # 3. Return negative coefficients
+        return -final_D_R, -final_D_L
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -140,10 +124,7 @@ class LearnableReLU(nn.Module):
             c_r = c_r.unsqueeze(2)
             c_l = c_l.unsqueeze(2)
 
-        # Right term: Adds slope changes for x > c_r
-        term_r = a_r * F.relu(x_u - c_r)
-        
-        # Left term: Adds slope changes for x < c_l
+        term_r = a_r * F.relu(x_u - c_r)        
         term_l = a_l * F.relu(c_l - x_u)
 
         out = out + term_r.sum(dim=0) - term_l.sum(dim=0)

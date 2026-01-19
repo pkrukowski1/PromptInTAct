@@ -25,7 +25,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
     The regularizer is designed to be applied as an *augmentation to the task loss*
     during training and assumes the following architectural block:
 
-    IntervalActivation -> LearnableReLU -> IntervalActivation -> Linear -> Softmax
+    [Input] -> Interval1 -> LearnableReLU -> Interval2 -> Linear -> [Logits]
     """
     def __init__(self,
             lambda_var: float = 0.01,
@@ -132,7 +132,8 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             # ============================================================
             # We trigger the reset_range for the interval layers.
             # This computes the final [min, max] hypercube from the test_act_buffer.
-            self.interval_layer2.reset_range()
+            for interval_layer in [self.interval_layer1, self.interval_layer2]:
+                interval_layer.reset_range()
                 
             log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
@@ -156,29 +157,54 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         zero = torch.tensor(0.0, device=x.device, dtype=x.dtype)
         var_loss = zero.clone()
         drift_loss = zero.clone()
+        align_repr_loss = zero.clone()
 
         # 1. Variance regularization (compactness)
-        for interval_layer in [self.interval_layer1, self.interval_layer2]:
-            acts = interval_layer.curr_task_last_batch
-            acts_flat = acts.view(acts.size(0), -1)
-            batch_var = acts_flat.var(dim=0, unbiased=False).mean()
-            var_loss += batch_var
-
-        # 2. Functional drift regularization
+        # for idx, interval_layer in enumerate([self.interval_layer1, self.interval_layer2]):
+        #     acts = interval_layer.curr_task_last_batch
+        #     acts_flat = acts.view(acts.size(0), -1)
+        #     batch_var = acts_flat.var(dim=0, unbiased=False).mean()
+        #     var_loss += batch_var if idx == 0 else batch_var * 0.01  # weight second layer less
+        acts1 = self.interval_layer1.curr_task_last_batch
+        acts_flat1 = acts1.view(acts1.size(0), -1)
+        batch_var1 = acts_flat1.var(dim=0, unbiased=False).mean()
+        var_loss += batch_var1
+        
         if self.task_id > 0:
+            # 2. Functional drift regularization
             delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight
             delta_b = self.curr_linear_layer.bias - self.prev_linear_layer.bias
 
-            lb = self.interval_layer2.min.to(x.device)
-            ub = self.interval_layer2.max.to(x.device)
+            lb2 = self.interval_layer2.min.to(x.device)
+            ub2 = self.interval_layer2.max.to(x.device)
             
             dW_pos, dW_neg = torch.relu(delta_W), torch.relu(-delta_W)
 
-            drift_low = dW_pos @ lb - dW_neg @ ub + delta_b
-            drift_up  = dW_pos @ ub - dW_neg @ lb + delta_b
+            drift_low = dW_pos @ lb2 - dW_neg @ ub2 + delta_b
+            drift_up  = dW_pos @ ub2 - dW_neg @ lb2 + delta_b
             drift_loss += (drift_low.pow(2).mean() + drift_up.pow(2).mean())
+
+            # 3. Representation Alignment Regularization
+            lb1 = self.interval_layer1.min.to(x.device)
+            ub1 = self.interval_layer1.max.to(x.device)
+            prev_center1 = (ub1 + lb1) / 2.0
+            prev_radii1  = (ub1 - lb1) / 2.0
+
+            lb_prev_hypercube1 = prev_center1 - prev_radii1
+            ub_prev_hypercube1 = prev_center1 + prev_radii1
+
+            new_lb1, _ = acts_flat1.min(dim=0)
+            new_ub1, _ = acts_flat1.max(dim=0)
+
+            non_overlap_mask = (new_lb1 > ub_prev_hypercube1) | (new_ub1 < lb_prev_hypercube1)
+            new_center = (new_ub1 + new_lb1) / 2.0
+
+            center_loss = torch.norm(new_center[non_overlap_mask] - prev_center1[non_overlap_mask], p=2)
+
+            align_repr_loss += center_loss / (prev_radii1.mean() + 1e-8)
 
         return loss + \
                 self.lambda_var * var_loss + \
-                self.lambda_drift * drift_loss
+                self.lambda_drift * drift_loss + \
+                align_repr_loss
             
