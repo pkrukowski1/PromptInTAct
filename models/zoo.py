@@ -379,7 +379,8 @@ class ViTZoo(nn.Module):
             n_basis_functions = int(prompt_param[0]) if reg_type == 'intactpp' and n_last_blocks_to_finetune > 0 else 0
             zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
                                         num_heads=12, ckpt_layer=0, drop_path_rate=0, 
-                                        n_last_blocks_to_finetune=n_last_blocks_to_finetune, n_basis_functions=n_basis_functions
+                                        n_last_blocks_to_finetune=n_last_blocks_to_finetune, n_basis_functions=n_basis_functions,
+                                        max_slope=max_slope
                                         )
             from timm.models import vit_base_patch16_224
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()

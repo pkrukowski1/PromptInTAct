@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from typing import Tuple
 
 class LearnableReLU(nn.Module):
     """
@@ -129,7 +130,7 @@ class LearnableReLU(nn.Module):
         )
         return slopes
 
-    def get_coefficients(self) -> None:
+    def get_coefficients(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Calculates the basis coefficients 'a' (change in slope) from Target Slopes.
         """
