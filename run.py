@@ -45,7 +45,6 @@ def create_args():
     parser.add_argument('--use_align_loss', default=False, action='store_true', 
                         help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
     parser.add_argument('--n_last_blocks_to_finetune', default=0, type=int, help="Number of last transformer blocks to finetune to new tasks")
-    parser.add_argument('--max_slope', default=1.0, type=float, help="Maximum slope for the learnable ReLU activation function")
     parser.add_argument('--reg_type', type=str, default=None, 
                         choices=['intact', 'intactpp'],
                         help="Type of regularization to apply (default: None)")
