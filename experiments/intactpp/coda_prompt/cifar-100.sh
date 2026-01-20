@@ -39,19 +39,22 @@ mkdir -p $OUTDIR
 # Define the ranges you want to search over
 LAMBDA_VAR_SCALES=("0.001" "0.01" "0.1" "1.0")
 LAMBDA_DRIFT_SCALES=("0.001" "0.01" "0.1" "1.0")
-
+LAMBDA_FEAT_SCALES=("0.001" "0.01" "0.1" "1.0")
 
 for var in "${LAMBDA_VAR_SCALES[@]}"; do
   for drift in "${LAMBDA_DRIFT_SCALES[@]}"; do
-    LOGDIR=${OUTDIR}/coda-p/var${var}_drift${drift}
-    mkdir -p $LOGDIR
-    python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-      --learner_type prompt --learner_name CODAPrompt \
-      --prompt_param 100 8 0.0 \
-      --reg_type intactpp \
-      --log_dir $LOGDIR \
-      --lambda_var $var \
-      --lambda_drift $drift \
-      --n_last_blocks_to_finetune 0
+    for feat in "${LAMBDA_FEAT_SCALES[@]}"; do
+      LOGDIR=${OUTDIR}/coda-p/var${var}_drift${drift}_feat${feat}
+      mkdir -p $LOGDIR
+      python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+        --learner_type prompt --learner_name CODAPrompt \
+        --prompt_param 100 8 0.0 \
+        --reg_type intactpp \
+        --log_dir $LOGDIR \
+        --lambda_var $var \
+        --lambda_drift $drift \
+        --lambda_feat $feat \
+        --n_last_blocks_to_finetune 0
     done
   done
+done  

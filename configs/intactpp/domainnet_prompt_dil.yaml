@@ -19,6 +19,7 @@ train_aug: True
 rand_split: True
 lambda_var: 0.01
 lambda_drift: 1.0
+lambda_feat: 1.0
 domain_num: 6
 dil: True
 n_last_blocks_to_finetune: 0
