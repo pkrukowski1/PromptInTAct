@@ -354,15 +354,8 @@ class ViTZoo(nn.Module):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        if reg_type == 'intact':
+        if reg_type in ['intact', 'intactpp']:
             self.classifier = nn.Sequential(
-                IntervalActivation(use_non_linear_transform=False),
-                nn.Linear(768, num_classes)
-            )
-        elif reg_type == 'intactpp':
-            self.classifier = nn.Sequential(
-                IntervalActivation(use_non_linear_transform=False),
-                LearnableReLU(768, int(prompt_param[0])),
                 IntervalActivation(use_non_linear_transform=False),
                 nn.Linear(768, num_classes)
             )
@@ -385,6 +378,8 @@ class ViTZoo(nn.Module):
             load_dict = vit_base_patch16_224(pretrained=True).state_dict()
             del load_dict['head.weight']; del load_dict['head.bias']
             zoo_model.load_state_dict(load_dict, strict=False)
+
+        self.learnable_relu_blocks = zoo_model.learnable_relu_blocks if hasattr(zoo_model, 'learnable_relu_blocks') else None
 
         # create prompting module
         if self.prompt_flag == 'l2p':

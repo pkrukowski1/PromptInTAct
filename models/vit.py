@@ -209,6 +209,8 @@ class VisionTransformer(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         temp_blocks = []
         trainable_params = []
+        learnable_relu_blocks = []
+
         num_frozen = depth - self.n_last_blocks_to_finetune
         
         for i in range(num_frozen):
@@ -225,9 +227,11 @@ class VisionTransformer(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer
             ))
             trainable_params.extend(list(trainable_blocks[-1].mlp.learnable_relu.parameters()))
+            learnable_relu_blocks.append([trainable_blocks[-1].mlp.interval_layer, trainable_blocks[-1].mlp.learnable_relu])
             
         self.blocks = nn.ModuleList(temp_blocks + trainable_blocks)
         self.trainable_params = trainable_params
+        self.learnable_relu_blocks = learnable_relu_blocks
 
         self.norm = norm_layer(embed_dim)
 

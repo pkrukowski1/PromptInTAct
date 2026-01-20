@@ -10,8 +10,11 @@ import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
+
+
 from regularization.intact_regularization import InTActRegularization
-from regularization.intactpp_cls_head_regularization import InTActPlusPlusClsHeadRegularization
+from regularization.intact_regularization_wo_fe import InTActRegularizationWithoutFE
+from regularization.intactpp_backbone_regularization import InTActPlusPlusBackboneRegularization
 
 class Trainer:
 
@@ -150,30 +153,28 @@ class Trainer:
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
+        self.regularization = []
+
         if args.reg_type == 'intact':
-            self.regularization = InTActRegularization(
+            self.regularization.append(InTActRegularization(
                 lambda_var=args.lambda_var, 
                 lambda_drift=args.lambda_drift,
                 use_align_loss=args.use_align_loss
-            )
+            ))
         elif args.reg_type == 'intactpp':
-            # self.regularization = []
-
+            
             # ViT regularization
-            assert args.n_last_blocks_to_finetune == 0
             for _ in range(args.n_last_blocks_to_finetune):
-                break
-                intactpp_for_vit_blocks = InTActPlusPlusMlpBlockRegularization(
-                    lambda_var=args.lambda_var,
-                    lambda_drift=args.lambda_drift,
+                intactpp_for_vit_blocks = InTActPlusPlusBackboneRegularization(
+                    lambda_var=args.lambda_var
                 )
                 self.regularization.append(intactpp_for_vit_blocks)
 
-            # Classifier head regularization
-            self.regularization = InTActPlusPlusClsHeadRegularization(
+            # Classifier head regularization using basic InTAct without FE regularization
+            self.regularization.append(InTActRegularizationWithoutFE(
                     lambda_var=args.lambda_var,
                     lambda_drift=args.lambda_drift,
-                )
+                ))
         else:
             self.regularization = None
             
@@ -201,21 +202,34 @@ class Trainer:
         # for each task
         for i in range(self.max_task):
             if self.learner_config['reg_type'] == 'intact':
-                self.regularization.setup_task(
+                for reg in self.regularization:
+                    reg.setup_task(
+                        task_id=i,
+                        curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
+                            else self.learner.model.classifier,
+                        feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
+                            else self.learner.model.feat,
+                        prompt=self.learner.model.prompt
+                    )
+            elif self.learner_config['reg_type'] == 'intactpp':
+                if self.learner_config['n_last_blocks_to_finetune'] > 0:
+                    learnable_relu_blocks = self.learner.model.module.learnable_relu_blocks if hasattr(self.learner.model, 'module') \
+                        else self.learner.model.learnable_relu_blocks
+                    
+                    # We exclude the last regularization which is for the classifier head
+                    for learnable_relu_block, reg in zip(learnable_relu_blocks, self.regularization[:-1]):
+                        interval_layer, learnable_relu = learnable_relu_block
+                        reg.setup_task(
+                            task_id=i,
+                            interval_layer=interval_layer,
+                            learnable_relu=learnable_relu
+                        )
+
+                # Setup classifier head regularization
+                cls_head_reg = self.regularization[-1]
+                cls_head_reg.setup_task(
                     task_id=i,
                     curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
-                        else self.learner.model.classifier,
-                    feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
-                        else self.learner.model.feat,
-                    prompt=self.learner.model.prompt
-                )
-            elif self.learner_config['reg_type'] == 'intactpp':
-                # NOTE Here we should iterate over transformer blocks
-                # to include the regularization of the unfrozen ViT blocks, but
-                # currectly we don't need that
-                self.regularization.setup_task(
-                    task_id=i,
-                    cls_layers=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
                         else self.learner.model.classifier
                 )
 

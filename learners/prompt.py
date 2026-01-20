@@ -35,7 +35,8 @@ class Prompt(NormalNN):
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
         if regularization is not None:
-            total_loss += regularization.forward(inputs, total_loss)
+            for reg in regularization:
+                total_loss += reg.forward(inputs, total_loss)
 
         # ce loss
         total_loss = total_loss + prompt_loss.sum()

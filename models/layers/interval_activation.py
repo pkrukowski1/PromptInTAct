@@ -107,14 +107,20 @@ class IntervalActivation(nn.Module):
             torch.Tensor: Activated tensor of shape (batch, input_shape).
         """
         out = x 
-
         if self.use_non_linear_transform:
             out = F.leaky_relu(out)
 
-        if self.training:
-            self.curr_task_last_batch = out.view(-1, out.size(-1))        
-        elif self.maintain_test_act_buffer:
-            self.test_act_buffer.append(out.detach().cpu().view(-1, out.size(-1)))
+        # Extract Representation for Regularization (CLS Token Logic)
+        # We only want to store/regularize the CLS token to save memory 
+        # and focus on semantic drift rather than spatial noise.
+        if out.dim() == 3:
+            repr_for_stats = out[:, 0, :] 
+        else:
+            repr_for_stats = out
 
-        # Return 'out' with its ORIGINAL shape [Batch, Tokens, Hidden]
+        if self.training:
+            self.curr_task_last_batch = repr_for_stats
+        elif self.maintain_test_act_buffer:
+            self.test_act_buffer.append(repr_for_stats.detach().cpu())
+
         return out

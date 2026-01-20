@@ -42,7 +42,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         super().__init__()
         self.task_id = None
         log.info(
-            f"InTAct++ for MLP block regularization initialized with "
+            f"InTAct++ for CLS head block regularization initialized with "
             f"lambda_var={lambda_var}, "
             f"lambda_drift={lambda_drift}"
         )
