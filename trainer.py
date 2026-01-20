@@ -13,7 +13,7 @@ import learners
 
 
 from regularization.intact_regularization import InTActRegularization
-from regularization.intact_regularization_wo_fe import InTActRegularizationWithoutFE
+from regularization.intactpp_cls_head_regularization import InTActPlusPlusClsHeadRegularization
 from regularization.intactpp_backbone_regularization import InTActPlusPlusBackboneRegularization
 
 class Trainer:
@@ -159,6 +159,7 @@ class Trainer:
             self.regularization.append(InTActRegularization(
                 lambda_var=args.lambda_var, 
                 lambda_drift=args.lambda_drift,
+                lambda_feat=args.lambda_feat,
                 use_align_loss=args.use_align_loss
             ))
         elif args.reg_type == 'intactpp':
@@ -171,9 +172,10 @@ class Trainer:
                 self.regularization.append(intactpp_for_vit_blocks)
 
             # Classifier head regularization using basic InTAct without FE regularization
-            self.regularization.append(InTActRegularizationWithoutFE(
+            self.regularization.append(InTActPlusPlusClsHeadRegularization(
                     lambda_var=args.lambda_var,
                     lambda_drift=args.lambda_drift,
+                    lambda_feat=args.lambda_feat
                 ))
         else:
             self.regularization = None
@@ -229,8 +231,11 @@ class Trainer:
                 cls_head_reg = self.regularization[-1]
                 cls_head_reg.setup_task(
                     task_id=i,
-                    curr_classifier_head=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
-                        else self.learner.model.classifier
+                        cls_layers=self.learner.model.module.classifier if hasattr(self.learner.model, 'module') 
+                            else self.learner.model.classifier,
+                        feature_extractor=self.learner.model.module.feature_extractor if hasattr(self.learner.model, 'module') 
+                            else self.learner.model.feat,
+                        prompt=self.learner.model.prompt
                 )
 
             regularization = self.regularization

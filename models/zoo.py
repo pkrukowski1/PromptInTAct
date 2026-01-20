@@ -354,10 +354,16 @@ class ViTZoo(nn.Module):
         super(ViTZoo, self).__init__()
 
         # get last layer with a potential interval activation function
-        if reg_type in ['intact', 'intactpp']:
+        if reg_type == 'intact':
             self.classifier = nn.Sequential(
                 IntervalActivation(use_non_linear_transform=False),
                 nn.Linear(768, num_classes)
+            )
+        elif reg_type == 'intactpp':
+            self.classifier = nn.Sequential(
+                IntervalActivation(use_non_linear_transform=False),                
+                nn.Linear(768, num_classes),
+                LearnableReLU(out_features=768, k=prompt_param[0]),
             )
         else:
             self.classifier = nn.Sequential(

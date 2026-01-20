@@ -1,66 +1,45 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional
 
 class LearnableReLU(nn.Module):
     """
-    Adaptive Piecewise-Linear Activation (ReLU Base).
+    Normalized Learnable ReLU.
 
-    Designed for Continual Learning in ViT backbones, this module extends a 
-    standard ReLU with learnable "hinges" (breakpoints) that adaptively 
-    modify the slope in specific regions of the feature space.
+    Features:
+    - Preserves variable names (w_r, w_l, c_r, c_l).
+    - Uses Normalized Damping to prevent explosion with many tasks.
+    - Uses Softplus on weights to ensure stability (monotonicity).
     
-    This formulation guarantees strict monotonicity and non-negative slopes, 
-    ensuring numerical stability for methods relying on Interval Bound 
-    Propagation (IBP) or invertible flows.
-
-    Key Mechanics:
-    1. **Base Function:** f(x) = ReLU(x).
-    2. **Plasticity:** Adds weighted hinge functions to the base to adjust 
-       gradients for specific tasks.
-    3. **Safety Constraint:** The total slope is strictly bounded in [0.01, 1.0]
-       globally. This effectively converts the base ReLU into a Leaky ReLU 
-       with learnable leakiness and saturation.
-    
-    Attributes:
-        k (int): Maximum number of tasks/hinges.
-        out_features (int): Dimensionality of the input features.
+    Equation:
+       Damping = Sum(Softplus(w) * Violation) / (1 + Sum(Softplus(w)))
     """
 
-    def __init__(self, out_features: int, k: int) -> None:
+    def __init__(self, out_features: int, k: int, base_function: nn.Module = torch.nn.Identity()) -> None:
         """
-        Initialize the Learnable Activation.
+        Initialize the Normalized Activation.
 
         Args:
-            out_features (int): Number of feature dimensions (e.g., 768 for ViT-B).
-            k (int): Maximum number of hinges/tasks to support.
+            out_features (int): Feature dimensions.
+            k (int): Maximum number of tasks.
+            base_function (nn.Module): Base activation function (default: Identity).
         """
         super().__init__()
 
         self.k = k
         self.out_features = out_features
         self.num_active_hinges = 0
+        self.base_function = base_function
 
-        # --- Learnable Parameters ---
-        # RIGHT Side (Positive x): Initialize to -5.0
-        # Sigmoid(-5.0) ~ 0.006 -> Target Slope = 1.0 - 0.99*0.006 ≈ 0.994.
-        # Behavior: Standard Identity slope for positive values.
-        self.raw_decay_r = nn.ParameterList(
-            nn.Parameter(torch.ones(1, out_features) * -5.0) for _ in range(k - 1)
+        self.w_r = nn.ParameterList(
+            nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
         )
-        
-        # LEFT Side (Negative x): Initialize to +5.0
-        # Sigmoid(+5.0) ~ 0.993 -> Target Slope = 1.0 - 0.99*0.993 ≈ 0.017.
-        # Behavior: Starts as Leaky ReLU (slope ~0.01) instead of dead zero.
-        # This prevents "dead neurons" while respecting the 0.01 floor.
-        self.raw_decay_l = nn.ParameterList(
-            nn.Parameter(torch.ones(1, out_features) * 5.0) for _ in range(k - 1)
+        self.w_l = nn.ParameterList(
+            nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
         )
 
-        # Shape: [K-1, 1, D]. Batch/Token independent.
-        self.register_buffer("c_r", torch.zeros(k - 1, 1, out_features))
-        self.register_buffer("c_l", torch.zeros(k - 1, 1, out_features))
+        self.register_buffer("c_r", torch.ones(k - 1, 1, out_features) * 9999.0)
+        self.register_buffer("c_l", torch.ones(k - 1, 1, out_features) * -9999.0)
 
     def set_no_used_basis_functions(self, task_id: int) -> None:
         """
@@ -77,8 +56,8 @@ class LearnableReLU(nn.Module):
         """
         Freeze the parameters for hinge `idx` to preserve memory of old tasks.
         """
-        self.raw_decay_r[idx].requires_grad_(False)
-        self.raw_decay_l[idx].requires_grad_(False)
+        self.w_r[idx].requires_grad_(False)
+        self.w_l[idx].requires_grad_(False)
             
     @torch.no_grad()
     def anchor_next_shift(
@@ -93,12 +72,9 @@ class LearnableReLU(nn.Module):
         Computes channel-wise statistics across all images (Batch) and 
         all patches (Tokens) to find global feature bounds.
         """
-        # Collapse Batch and Token dimensions -> [N, Feat]
-        # This treats every pixel in every image as a data point for statistics.
         if z.dim() == 3:
             z = z.reshape(-1, z.size(-1))
 
-        # Calculate Channel-wise Percentiles [1, Feat]
         P_high = torch.quantile(z, percentile, dim=0, keepdim=True)
         P_low = torch.quantile(z, 1.0 - percentile, dim=0, keepdim=True)
         
@@ -112,83 +88,51 @@ class LearnableReLU(nn.Module):
                 self.c_r[idx] = torch.maximum(P_high, self.c_r[idx-1])
                 self.c_l[idx] = torch.minimum(P_low,  self.c_l[idx-1])
 
-    def get_coefficients(self) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """
-        Calculates slope adjustment coefficients 'a'.
-        
-        Logic:
-           a_r[i] = Slope_R[i+1] - Slope_R[i]
-           a_l[i] = Slope_L[i+1] - Slope_L[i]
-        """
-        if self.num_active_hinges == 0:
-            return None, None
-
-        # 1. Stack parameters
-        raw_r = torch.stack([self.raw_decay_r[i] for i in range(self.num_active_hinges)], dim=0)
-        raw_l = torch.stack([self.raw_decay_l[i] for i in range(self.num_active_hinges)], dim=0)
-        
-        # 2. Cumulative Sum
-        cum_r = torch.cumsum(raw_r, dim=0)
-        cum_l = torch.cumsum(raw_l, dim=0)
-        
-        # 3. Target Slopes [0.01, 1.0]
-        target_slope_r = 1.0 - 0.99 * torch.sigmoid(cum_r)
-        target_slope_l = 1.0 - 0.99 * torch.sigmoid(cum_l)
-        
-        # 4. Define Base Slopes (ReLU Asymptotes)
-        # ReLU Right Asymptote -> 1.0
-        base_slope_r = torch.ones(1, 1, self.out_features, device=raw_r.device)
-        
-        # ReLU Left Asymptote -> 0.0
-        # This allows calculating positive a_l to raise slope from 0.0 to 0.01
-        base_slope_l = torch.zeros(1, 1, self.out_features, device=raw_l.device)
-        
-        # 5. Compute Deltas
-        full_slope_r = torch.cat([base_slope_r, target_slope_r], dim=0)
-        full_slope_l = torch.cat([base_slope_l, target_slope_l], dim=0)
-        
-        a_r = full_slope_r[1:] - full_slope_r[:-1]
-        a_l = full_slope_l[1:] - full_slope_l[:-1]
-
-        return a_r, a_l
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-        f(x) = ReLU(x) + Sum(a_r * ReLU(x - c_r)) - Sum(a_l * ReLU(c_l - x))
-        """
-        # Base function: ReLU
-        base = F.relu(x)
+        base = self.base_function(x)
 
         if self.num_active_hinges == 0:
             return base
 
-        # 1. Get Coefficients [K, 1, D]
-        a_r, a_l = self.get_coefficients()
-        
-        # 2. Get Anchors [K, 1, D]
-        c_r = self.c_r[:self.num_active_hinges]
-        c_l = self.c_l[:self.num_active_hinges]
+        # 1. Gather Parameters
+        c_r_curr = self.c_r[:self.num_active_hinges]
+        c_l_curr = self.c_l[:self.num_active_hinges]
 
-        # 3. Expand dimensions for ViT Broadcasting
-        # Input: [Batch, Tokens, D] -> Target: [K, Batch, Tokens, D]
+        # Use Softplus to enforce positivity (Required for normalization stability)
+        w_r_stack = torch.stack([self.w_r[i] for i in range(self.num_active_hinges)])
+        w_l_stack = torch.stack([self.w_l[i] for i in range(self.num_active_hinges)])
+        
+        stiffness_r = F.softplus(w_r_stack)
+        stiffness_l = F.softplus(w_l_stack)
+
+        # 2. Broadcast
         x_u = x.unsqueeze(0)
-        
-        while a_r.dim() < x_u.dim():
-            a_r = a_r.unsqueeze(1)
-            a_l = a_l.unsqueeze(1)
-            c_r = c_r.unsqueeze(1)
-            c_l = c_l.unsqueeze(1)
-        
-        # 4. Apply Hinges
-        # term_r adds slope for x > c_r
-        term_r = a_r * F.relu(x_u - c_r)
-        
-        # term_l modifies slope for x < c_l
-        # Note: We subtract term_l in the sum.
-        # Since ReLU(c_l - x) has slope -1 w.r.t x, the subtraction adds +1 * a_l.
-        term_l = a_l * F.relu(c_l - x_u)
+        while stiffness_r.dim() < x_u.dim():
+            stiffness_r = stiffness_r.unsqueeze(1)
+            stiffness_l = stiffness_l.unsqueeze(1)
+            c_r_curr = c_r_curr.unsqueeze(1)
+            c_l_curr = c_l_curr.unsqueeze(1)
 
-        out = base + term_r.sum(dim=0) - term_l.sum(dim=0)
+        # 3. Calculate Normalized Penalties
         
-        return out
+        # Right Side (Pull Down if x > c_r)
+        excess_r = F.relu(x_u - c_r_curr)
+        weighted_excess_r = stiffness_r * excess_r
+        
+        sum_penalty_r = weighted_excess_r.sum(dim=0)
+        sum_stiffness_r = stiffness_r.sum(dim=0)
+        
+        # Note: Minus sign handled in the return statement
+        damping_r = sum_penalty_r / (sum_stiffness_r + 1.0)
+
+        # Left Side (Pull Up if x < c_l)
+        excess_l = F.relu(c_l_curr - x_u)
+        weighted_excess_l = stiffness_l * excess_l
+        
+        sum_penalty_l = weighted_excess_l.sum(dim=0)
+        sum_stiffness_l = stiffness_l.sum(dim=0)
+        
+        damping_l = sum_penalty_l / (sum_stiffness_l + 1.0)
+
+        # 4. Apply: Base - Down + Up
+        return base - damping_r + damping_l

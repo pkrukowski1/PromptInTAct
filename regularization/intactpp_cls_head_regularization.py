@@ -1,12 +1,14 @@
 import logging
 from copy import deepcopy
-from typing import List
+from typing import List, Union
 
 import torch
 import torch.nn as nn
 
+from learners.prompt import DualPrompt, L2P, CODAPrompt
 from models.layers.interval_activation import IntervalActivation
 from models.layers.learnable_relu import LearnableReLU
+from models.zoo import CodaPrompt
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -30,6 +32,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
     def __init__(self,
             lambda_var: float = 0.01,
             lambda_drift: float = 1.0,
+            lambda_feat: float = 1.0,
         ) -> None:
         """
         Initialize the InTAct++ regularizer.
@@ -44,28 +47,34 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         log.info(
             f"InTAct++ for CLS head block regularization initialized with "
             f"lambda_var={lambda_var}, "
+            f"lambda_feat={lambda_feat}, "
             f"lambda_drift={lambda_drift}"
         )
 
         self.task_id = None
         self.lambda_var = lambda_var
         self.lambda_drift = lambda_drift
+        self.lambda_feat = lambda_feat
 
         # References to current layers
-        self.interval_layer1: IntervalActivation = None
-        self.interval_layer2: IntervalActivation = None
+        self.interval_layer: IntervalActivation = None
         self.curr_linear_layer: nn.Linear = None
         self.learnable_relu: LearnableReLU = None
         
         # Frozen copy of the previous layer
         self.prev_linear_layer: nn.Linear = None
-        
+
+        self.prompt: Union[CODAPrompt, L2P, DualPrompt] = None
+        self.old_prompt: Union[CODAPrompt, L2P, DualPrompt] = None
+        self.feature_extractor: nn.Sequential = None
         
     @torch.no_grad()
     def setup_task(
         self,
         task_id: int,
-        cls_layers: List  # [Interval, LearnableReLU, Interval, Linear]
+        cls_layers: List,  # [Interval, LearnableReLU, Interval, Linear]
+        feature_extractor: nn.Sequential,
+        prompt: Union[CODAPrompt, L2P, DualPrompt]
     ) -> None:
         """
         Prepare the regularizer for a new task.
@@ -77,20 +86,26 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         self.task_id = task_id
 
         # 1. Map Layer References
-        self.interval_layer1 = cls_layers[0]
-        self.learnable_relu = cls_layers[1]
-        self.interval_layer2 = cls_layers[2]
-        self.curr_linear_layer = cls_layers[3]
-
-        assert isinstance(self.interval_layer1, IntervalActivation)
-        assert isinstance(self.interval_layer2, IntervalActivation)
+        self.interval_layer = cls_layers[0]
+        self.curr_linear_layer = cls_layers[1]
+        self.learnable_relu = cls_layers[2]
+        
+        assert isinstance(self.interval_layer, IntervalActivation)
         assert isinstance(self.curr_linear_layer, nn.Linear)
         assert isinstance(self.learnable_relu, LearnableReLU)
+
+        # Feature extractor is shared and frozen, so we just keep a reference to it
+        self.feature_extractor = feature_extractor
+        self.prompt = prompt
 
         # 2. Deepcopy and Freeze the previous task's weights
         # We use ModuleList so they are properly moved to the correct device
         self.prev_linear_layer = deepcopy(self.curr_linear_layer).eval()
         for p in self.prev_linear_layer.parameters():
+            p.requires_grad = False
+
+        self.old_prompt = deepcopy(self.prompt)
+        for p in self.old_prompt.parameters():
             p.requires_grad = False
 
         device = next(self.prev_linear_layer.parameters()).device
@@ -104,8 +119,9 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             # ============================================================
             preacts_for_hinges = []
 
-            for x in self.interval_layer1.test_act_buffer:
+            for x in self.interval_layer.test_act_buffer:
                 x = x.to(device)
+                x = self.prev_linear_layer(x)
                 preacts_for_hinges.append(x.detach())
 
             # ============================================================
@@ -132,8 +148,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             # ============================================================
             # We trigger the reset_range for the interval layers.
             # This computes the final [min, max] hypercube from the test_act_buffer.
-            for interval_layer in [self.interval_layer1, self.interval_layer2]:
-                interval_layer.reset_range()
+            self.interval_layer.reset_range()
                 
             log.info(f"Task {task_id} setup complete. Regularizing against Task {task_id-1}.")
 
@@ -155,56 +170,64 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         """
 
         zero = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+
         var_loss = zero.clone()
         drift_loss = zero.clone()
         align_repr_loss = zero.clone()
+        feature_drift_loss = zero.clone()
 
         # 1. Variance regularization (compactness)
-        # for idx, interval_layer in enumerate([self.interval_layer1, self.interval_layer2]):
-        #     acts = interval_layer.curr_task_last_batch
-        #     acts_flat = acts.view(acts.size(0), -1)
-        #     batch_var = acts_flat.var(dim=0, unbiased=False).mean()
-        #     var_loss += batch_var if idx == 0 else batch_var * 0.01  # weight second layer less
-        acts1 = self.interval_layer1.curr_task_last_batch
-        acts_flat1 = acts1.view(acts1.size(0), -1)
-        batch_var1 = acts_flat1.var(dim=0, unbiased=False).mean()
-        var_loss += batch_var1
-        
+        acts = self.interval_layer.curr_task_last_batch
+        acts_flat = acts.view(acts.size(0), -1)
+        batch_var = acts_flat.var(dim=0, unbiased=False).mean()
+        var_loss += batch_var
+
         if self.task_id > 0:
             # 2. Functional drift regularization
+            lb = self.interval_layer.min.to(x.device)
+            ub = self.interval_layer.max.to(x.device)
+
+            # Drift only at the FIRST IntervalActivation
+            with torch.no_grad():
+                q, _ = self.feature_extractor(x)
+                q = q[:,0,:]
+            y_old, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id)
+            y_old = y_old[:,0,:].detach()
+
+            mask = ((acts >= lb) & (acts <= ub)).float()
+            feature_drift_loss += (
+                (mask * (y_old - acts).pow(2)).sum() / (mask.sum() + 1e-8)
+            )
+
             delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight
             delta_b = self.curr_linear_layer.bias - self.prev_linear_layer.bias
-
-            lb2 = self.interval_layer2.min.to(x.device)
-            ub2 = self.interval_layer2.max.to(x.device)
             
             dW_pos, dW_neg = torch.relu(delta_W), torch.relu(-delta_W)
 
-            drift_low = dW_pos @ lb2 - dW_neg @ ub2 + delta_b
-            drift_up  = dW_pos @ ub2 - dW_neg @ lb2 + delta_b
+            drift_low = dW_pos @ lb - dW_neg @ ub + delta_b
+            drift_up  = dW_pos @ ub - dW_neg @ lb + delta_b
             drift_loss += (drift_low.pow(2).mean() + drift_up.pow(2).mean())
 
             # 3. Representation Alignment Regularization
-            lb1 = self.interval_layer1.min.to(x.device)
-            ub1 = self.interval_layer1.max.to(x.device)
-            prev_center1 = (ub1 + lb1) / 2.0
-            prev_radii1  = (ub1 - lb1) / 2.0
+            prev_center = (ub + lb) / 2.0
+            prev_radii  = (ub - lb) / 2.0
 
-            lb_prev_hypercube1 = prev_center1 - prev_radii1
-            ub_prev_hypercube1 = prev_center1 + prev_radii1
+            lb_prev_hypercube = prev_center - prev_radii
+            ub_prev_hypercube = prev_center + prev_radii
 
-            new_lb1, _ = acts_flat1.min(dim=0)
-            new_ub1, _ = acts_flat1.max(dim=0)
+            new_lb, _ = acts_flat.min(dim=0)
+            new_ub, _ = acts_flat.max(dim=0)
 
-            non_overlap_mask = (new_lb1 > ub_prev_hypercube1) | (new_ub1 < lb_prev_hypercube1)
-            new_center = (new_ub1 + new_lb1) / 2.0
+            non_overlap_mask = (new_lb > ub_prev_hypercube) | (new_ub < lb_prev_hypercube)
+            new_center = (new_ub + new_lb) / 2.0
 
-            center_loss = torch.norm(new_center[non_overlap_mask] - prev_center1[non_overlap_mask], p=2)
+            center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
 
-            align_repr_loss += center_loss / (prev_radii1.mean() + 1e-8)
+            align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
 
         return loss + \
                 self.lambda_var * var_loss + \
                 self.lambda_drift * drift_loss + \
+                self.lambda_feat * feature_drift_loss + \
                 align_repr_loss
             
