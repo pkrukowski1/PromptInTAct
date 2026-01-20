@@ -4,15 +4,20 @@ import torch.nn.functional as F
 
 class LearnableReLU(nn.Module):
     """
-    Normalized Learnable ReLU.
+    Normalized Additive Learnable ReLU.
 
-    Features:
-    - Preserves variable names (w_r, w_l, c_r, c_l).
-    - Uses Normalized Damping to prevent explosion with many tasks.
-    - Uses Softplus on weights to ensure stability (monotonicity).
-    
+    A dynamic activation function that introduces learnable piecewise-linear 
+    corrections (hinges) for Continual Learning.
+
+    This module provides **Plasticity**:
+    - It adds new basis functions (hinges) at the boundaries of previous tasks.
+    - Weights (w) can be positive (slope up) or negative (slope down).
+    - It enables the model to learn new high-magnitude features for new tasks 
+      without destabilizing the scale of the output.
+
     Equation:
-       Damping = Sum(Softplus(w) * Violation) / (1 + Sum(Softplus(w)))
+       Correction = Sum(w * ReLU(Violation)) / (1 + Sum(|w|))
+       f(x) = Base(x) + Correction
     """
 
     def __init__(self, out_features: int, k: int, base_function: nn.Module = torch.nn.Identity()) -> None:
@@ -43,12 +48,12 @@ class LearnableReLU(nn.Module):
 
     def set_no_used_basis_functions(self, task_id: int) -> None:
         """
-        Sets the number of active hinges based on the current task.
+        Activates the hinges for the specified task.
         
         Args:
             task_id (int): Current task index (0-indexed). 
-                           Task 0 uses pure ReLU.
-                           Task 1 activates the first hinge set.
+                           Task 0: Pure Base Function.
+                           Task 1: Base + 1 Hinge, etc.
         """
         self.num_active_hinges = task_id
 
@@ -94,45 +99,28 @@ class LearnableReLU(nn.Module):
         if self.num_active_hinges == 0:
             return base
 
-        # 1. Gather Parameters
         c_r_curr = self.c_r[:self.num_active_hinges]
         c_l_curr = self.c_l[:self.num_active_hinges]
 
-        # Use Softplus to enforce positivity (Required for normalization stability)
         w_r_stack = torch.stack([self.w_r[i] for i in range(self.num_active_hinges)])
         w_l_stack = torch.stack([self.w_l[i] for i in range(self.num_active_hinges)])
         
-        stiffness_r = F.softplus(w_r_stack)
-        stiffness_l = F.softplus(w_l_stack)
-
-        # 2. Broadcast
         x_u = x.unsqueeze(0)
-        while stiffness_r.dim() < x_u.dim():
-            stiffness_r = stiffness_r.unsqueeze(1)
-            stiffness_l = stiffness_l.unsqueeze(1)
+        while w_r_stack.dim() < x_u.dim():
+            w_r_stack = w_r_stack.unsqueeze(1)
+            w_l_stack = w_l_stack.unsqueeze(1)
             c_r_curr = c_r_curr.unsqueeze(1)
             c_l_curr = c_l_curr.unsqueeze(1)
 
-        # 3. Calculate Normalized Penalties
-        
-        # Right Side (Pull Down if x > c_r)
-        excess_r = F.relu(x_u - c_r_curr)
-        weighted_excess_r = stiffness_r * excess_r
-        
-        sum_penalty_r = weighted_excess_r.sum(dim=0)
-        sum_stiffness_r = stiffness_r.sum(dim=0)
-        
-        # Note: Minus sign handled in the return statement
-        damping_r = sum_penalty_r / (sum_stiffness_r + 1.0)
+        hinge_r = F.relu(x_u - c_r_curr)
+        hinge_l = F.relu(c_l_curr - x_u)
 
-        # Left Side (Pull Up if x < c_l)
-        excess_l = F.relu(c_l_curr - x_u)
-        weighted_excess_l = stiffness_l * excess_l
+        correction_r = w_r_stack * hinge_r
+        correction_l = w_l_stack * hinge_l
         
-        sum_penalty_l = weighted_excess_l.sum(dim=0)
-        sum_stiffness_l = stiffness_l.sum(dim=0)
+        sum_correction = correction_r.sum(dim=0) + correction_l.sum(dim=0)
         
-        damping_l = sum_penalty_l / (sum_stiffness_l + 1.0)
-
-        # 4. Apply: Base - Down + Up
-        return base - damping_r + damping_l
+        sum_abs_w = w_r_stack.abs().sum(dim=0) + w_l_stack.abs().sum(dim=0)
+        normalization = 1.0 + sum_abs_w
+        
+        return base + (sum_correction / normalization)
