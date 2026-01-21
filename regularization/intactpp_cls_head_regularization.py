@@ -200,13 +200,18 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
                 anchors_r = self.learnable_relu.c_r[:num_anchors].squeeze(1)
                 anchors_l = self.learnable_relu.c_l[:num_anchors].squeeze(1)
 
+                feat_r = self.learnable_relu(anchors_r)
+                feat_l = self.learnable_relu(anchors_l)
+
                 with torch.no_grad():
-                    target_logits_r = self.prev_linear_layer(anchors_r)
-                    target_logits_l = self.prev_linear_layer(anchors_l)
+                    target_logits_r = self.prev_linear_layer(feat_r)
+                    target_logits_l = self.prev_linear_layer(feat_l)
                 
-                pred_logits_r = self.curr_linear_layer(anchors_r)
-                pred_logits_l = self.curr_linear_layer(anchors_l)
-                drift_loss = F.mse_loss(pred_logits_r, target_logits_r) + F.mse_loss(pred_logits_l, target_logits_l)
+                pred_logits_r = self.curr_linear_layer(feat_r)
+                pred_logits_l = self.curr_linear_layer(feat_l)
+                
+                drift_loss = F.mse_loss(pred_logits_r, target_logits_r) + \
+                             F.mse_loss(pred_logits_l, target_logits_l)
 
             # 4. Representation Alignment
             prev_center = (ub + lb) / 2.0
