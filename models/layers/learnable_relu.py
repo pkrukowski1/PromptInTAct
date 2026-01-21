@@ -4,94 +4,77 @@ import torch.nn.functional as F
 
 class LearnableReLU(nn.Module):
     """
-    Normalized Additive Learnable ReLU.
+    Mechanism:
+    1. Learns 'theta' (unbounded parameter).
+    2. Bounds it: s = max_dev * tanh(theta).
+    3. Telescopes it: w = s_curr - s_prev.
 
-    A dynamic activation function that introduces learnable piecewise-linear 
-    corrections (hinges) for Continual Learning.
-
-    This module provides **Plasticity**:
-    - It adds new basis functions (hinges) at the boundaries of previous tasks.
-    - Weights (w) can be positive (slope up) or negative (slope down).
-    - It enables the model to learn new high-magnitude features for new tasks 
-      without destabilizing the scale of the output.
-
-    Equation:
-       Correction = Sum(w * ReLU(Violation)) / (1 + Sum(|w|))
-       f(x) = Base(x) + Correction
+    Guarantees:
+    - Total Slope is STRICTLY within (1 - max_dev, 1 + max_dev).
+    - No Division (Clean Gradients).
+    - No Accumulation (Tasks are decoupled).
     """
 
-    def __init__(self, out_features: int, k: int, base_function: nn.Module = torch.nn.Identity()) -> None:
-        """
-        Initialize the Normalized Activation.
-
-        Args:
-            out_features (int): Feature dimensions.
-            k (int): Maximum number of tasks.
-            base_function (nn.Module): Base activation function (default: Identity).
-        """
+    def __init__(self, out_features: int, k: int, max_slope_dev: float = 1.0, base_function: nn.Module = nn.Identity()) -> None:
         super().__init__()
-
         self.k = k
-        self.out_features = out_features
+        self.max_slope_dev = max_slope_dev
         self.num_active_hinges = 0
         self.base_function = base_function
 
-        self.w_r = nn.ParameterList(
+        # Unbounded parameters (Thetas)
+        self.theta_r = nn.ParameterList(
             nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
         )
-        self.w_l = nn.ParameterList(
+        self.theta_l = nn.ParameterList(
             nn.Parameter(torch.zeros(1, out_features)) for _ in range(k - 1)
         )
 
         self.register_buffer("c_r", torch.ones(k - 1, 1, out_features) * 9999.0)
         self.register_buffer("c_l", torch.ones(k - 1, 1, out_features) * -9999.0)
+        
+        self.register_buffer("global_max", torch.ones(1, out_features) * -9999.0)
+        self.register_buffer("global_min", torch.ones(1, out_features) * 9999.0)
 
     def set_no_used_basis_functions(self, task_id: int) -> None:
-        """
-        Activates the hinges for the specified task.
-        
-        Args:
-            task_id (int): Current task index (0-indexed). 
-                           Task 0: Pure Base Function.
-                           Task 1: Base + 1 Hinge, etc.
-        """
         self.num_active_hinges = task_id
 
     def freeze_basis_function(self, idx: int) -> None:
-        """
-        Freeze the parameters for hinge `idx` to preserve memory of old tasks.
-        """
-        self.w_r[idx].requires_grad_(False)
-        self.w_l[idx].requires_grad_(False)
-            
+        if idx < len(self.theta_r):
+            self.theta_r[idx].requires_grad_(False)
+            self.theta_l[idx].requires_grad_(False)
+
     @torch.no_grad()
     def anchor_next_shift(
         self,
         z: torch.Tensor,
         task_id: int,
-        percentile: float = 0.99,
+        percentile_high: float = 0.99,
+        percentile_low: float = 0.01,
     ) -> None:
-        """
-        Calculates and locks anchor positions (c_r, c_l) for the next task.
-        
-        Computes channel-wise statistics across all images (Batch) and 
-        all patches (Tokens) to find global feature bounds.
-        """
-        if z.dim() == 3:
-            z = z.reshape(-1, z.size(-1))
+        z_cpu = z.detach().cpu()
+        if z_cpu.dim() == 3: 
+            z_cpu = z_cpu.reshape(-1, z_cpu.size(-1))
 
-        P_high = torch.quantile(z, percentile, dim=0, keepdim=True)
-        P_low = torch.quantile(z, 1.0 - percentile, dim=0, keepdim=True)
+        curr_max = torch.quantile(z_cpu, percentile_high, dim=0, keepdim=True)
+        curr_min = torch.quantile(z_cpu, percentile_low, dim=0, keepdim=True)
+        
+        device = self.c_r.device
+        curr_max = curr_max.to(device)
+        curr_min = curr_min.to(device)
         
         idx = task_id - 1
-        
         if idx >= 0 and idx < len(self.c_r):
             if task_id == 1:
-                self.c_r[idx] = P_high
-                self.c_l[idx] = P_low
+                self.c_r[idx] = curr_max
+                self.c_l[idx] = curr_min
+                self.global_max = curr_max
+                self.global_min = curr_min
             else:
-                self.c_r[idx] = torch.maximum(P_high, self.c_r[idx-1])
-                self.c_l[idx] = torch.minimum(P_low,  self.c_l[idx-1])
+                self.c_r[idx] = self.global_max
+                self.c_l[idx] = self.global_min
+                self.global_max = torch.maximum(self.global_max, curr_max)
+                self.global_min = torch.minimum(self.global_min, curr_min)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         base = self.base_function(x)
@@ -99,12 +82,31 @@ class LearnableReLU(nn.Module):
         if self.num_active_hinges == 0:
             return base
 
+        # 1. Gather Anchors
         c_r_curr = self.c_r[:self.num_active_hinges]
         c_l_curr = self.c_l[:self.num_active_hinges]
 
-        w_r_stack = torch.stack([self.w_r[i] for i in range(self.num_active_hinges)])
-        w_l_stack = torch.stack([self.w_l[i] for i in range(self.num_active_hinges)])
+        # 2. Compute BOUNDED Telescoping Weights
+        # Step A: Stack Raw Parameters
+        theta_r_stack = torch.stack([self.theta_r[i] for i in range(self.num_active_hinges)])
+        theta_l_stack = torch.stack([self.theta_l[i] for i in range(self.num_active_hinges)])
         
+        # Step B: Apply Tanh Bound
+        # s is strictly in (-max_dev, +max_dev)
+        s_r = self.max_slope_dev * torch.tanh(theta_r_stack)
+        s_l = self.max_slope_dev * torch.tanh(theta_l_stack)
+        
+        # Step C: Telescope (Difference)
+        # Prepend 0.0 (Identity deviation)
+        zeros = torch.zeros_like(s_r[0:1]) 
+        
+        s_r_shifted = torch.cat([zeros, s_r[:-1]], dim=0)
+        w_r_stack = s_r - s_r_shifted
+        
+        s_l_shifted = torch.cat([zeros, s_l[:-1]], dim=0)
+        w_l_stack = s_l - s_l_shifted
+
+        # 3. Broadcast
         x_u = x.unsqueeze(0)
         while w_r_stack.dim() < x_u.dim():
             w_r_stack = w_r_stack.unsqueeze(1)
@@ -112,15 +114,12 @@ class LearnableReLU(nn.Module):
             c_r_curr = c_r_curr.unsqueeze(1)
             c_l_curr = c_l_curr.unsqueeze(1)
 
+        # 4. Standard ReLU Hinge
         hinge_r = F.relu(x_u - c_r_curr)
         hinge_l = F.relu(c_l_curr - x_u)
 
+        # 5. Apply
         correction_r = w_r_stack * hinge_r
         correction_l = w_l_stack * hinge_l
         
-        sum_correction = correction_r.sum(dim=0) + correction_l.sum(dim=0)
-        
-        sum_abs_w = w_r_stack.abs().sum(dim=0) + w_l_stack.abs().sum(dim=0)
-        normalization = 1.0 + sum_abs_w
-        
-        return base + (sum_correction / normalization)
+        return base + correction_r.sum(dim=0) + correction_l.sum(dim=0)
