@@ -44,7 +44,7 @@ class MlpWithLearnableActFnc(nn.Module):
         hidden_features = hidden_features or in_features
         self.interval_layer = IntervalActivation(use_non_linear_transform=False)
         self.fc1 = nn.Linear(in_features, hidden_features)
-        self.learnable_relu = LearnableReLU(hidden_features, n_basis_functions)
+        self.learnable_relu = LearnableReLU(hidden_features, n_basis_functions, base_function=torch.nn.GELU())
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
