@@ -15,10 +15,9 @@ class LearnableReLU(nn.Module):
     - No Accumulation (Tasks are decoupled).
     """
 
-    def __init__(self, out_features: int, k: int, max_slope_dev: float = 1.0, base_function: nn.Module = nn.Identity()) -> None:
+    def __init__(self, out_features: int, k: int, base_function: nn.Module = nn.Identity()) -> None:
         super().__init__()
         self.k = k
-        self.max_slope_dev = max_slope_dev
         self.num_active_hinges = 0
         self.base_function = base_function
 
@@ -82,31 +81,23 @@ class LearnableReLU(nn.Module):
         if self.num_active_hinges == 0:
             return base
 
-        # 1. Gather Anchors
         c_r_curr = self.c_r[:self.num_active_hinges]
         c_l_curr = self.c_l[:self.num_active_hinges]
 
-        # 2. Compute BOUNDED Telescoping Weights
-        # Step A: Stack Raw Parameters
         theta_r_stack = torch.stack([self.theta_r[i] for i in range(self.num_active_hinges)])
         theta_l_stack = torch.stack([self.theta_l[i] for i in range(self.num_active_hinges)])
         
-        # Step B: Apply Tanh Bound
-        # s is strictly in (-max_dev, +max_dev)
-        s_r = self.max_slope_dev * torch.tanh(theta_r_stack)
-        s_l = self.max_slope_dev * torch.tanh(theta_l_stack)
+        s_r = -0.5 * (torch.tanh(theta_r_stack) + 1.0)
+        s_l = -0.5 * (torch.tanh(theta_l_stack) + 1.0)
         
-        # Step C: Telescope (Difference)
-        # Prepend 0.0 (Identity deviation)
+        # Telescoping weights
         zeros = torch.zeros_like(s_r[0:1]) 
-        
         s_r_shifted = torch.cat([zeros, s_r[:-1]], dim=0)
         w_r_stack = s_r - s_r_shifted
         
         s_l_shifted = torch.cat([zeros, s_l[:-1]], dim=0)
         w_l_stack = s_l - s_l_shifted
 
-        # 3. Broadcast
         x_u = x.unsqueeze(0)
         while w_r_stack.dim() < x_u.dim():
             w_r_stack = w_r_stack.unsqueeze(1)
@@ -114,12 +105,10 @@ class LearnableReLU(nn.Module):
             c_r_curr = c_r_curr.unsqueeze(1)
             c_l_curr = c_l_curr.unsqueeze(1)
 
-        # 4. Standard ReLU Hinge
         hinge_r = F.relu(x_u - c_r_curr)
         hinge_l = F.relu(c_l_curr - x_u)
 
-        # 5. Apply
         correction_r = w_r_stack * hinge_r
         correction_l = w_l_stack * hinge_l
         
-        return base + correction_r.sum(dim=0) + correction_l.sum(dim=0)
+        return base + correction_r.sum(dim=0) - correction_l.sum(dim=0)

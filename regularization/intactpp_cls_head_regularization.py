@@ -86,7 +86,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         """
         self.task_id = task_id
 
-        # 1. Map Layer References (Enforcing Gatekeeper Order)
+        # 1. Map Layer References
         self.interval_layer = cls_layers[0]
         self.learnable_relu = cls_layers[1]
         self.curr_linear_layer = cls_layers[2]
@@ -98,8 +98,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         self.feature_extractor = feature_extractor
         self.prompt = prompt
 
-        # 2. Freeze previous Linear Head
-        # This acts as the "Target Function" for our stability regularization
+        # 2. Freeze previous layers
         self.prev_linear_layer = deepcopy(self.curr_linear_layer).eval()
         for p in self.prev_linear_layer.parameters():
             p.requires_grad = False
@@ -218,22 +217,24 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
                 sorted_breaks, _ = torch.sort(breaks_stack, dim=0)
                 
                 total_valid_width = (ub - lb) + 1e-6
-                
+
                 for j in range(sorted_breaks.size(0) - 1):
                     l_seg = sorted_breaks[j]
                     u_seg = sorted_breaks[j+1]
-                    
+
                     seg_width = (u_seg - l_seg)
                     valid_mask = (seg_width > 1e-6).float()
-                    
+
+                    if valid_mask.sum() == 0:
+                        continue
+
                     out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0) * valid_mask
                     out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0) * valid_mask
-                    
+
                     d_l = (dW_pos @ out_l) - (dW_neg @ out_u) + delta_b
                     d_u = (dW_pos @ out_u) - (dW_neg @ out_l) + delta_b
-                    
+
                     segment_drift_sq = (d_l.pow(2) + d_u.pow(2))
-                    
                     avg_width = (seg_width * valid_mask).sum() / (valid_mask.sum() + 1e-8)
                     norm_weight = avg_width / total_valid_width.mean()
                     
