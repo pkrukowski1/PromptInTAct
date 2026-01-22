@@ -191,27 +191,68 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             )
 
             # =========================================================
-            # 3. Hinge Endpoint Regularization
+            # 3. Piecewise Drift Regularization
             # =========================================================
             
-            num_anchors = self.learnable_relu.num_active_hinges
+            delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight
+            delta_b = self.curr_linear_layer.bias - self.prev_linear_layer.bias
             
-            if num_anchors > 0:
-                anchors_r = self.learnable_relu.c_r[:num_anchors].squeeze(1)
-                anchors_l = self.learnable_relu.c_l[:num_anchors].squeeze(1)
+            dW_pos = torch.relu(delta_W)
+            dW_neg = torch.relu(-delta_W)
 
-                feat_r = self.learnable_relu(anchors_r)
-                feat_l = self.learnable_relu(anchors_l)
+            if self.task_id < 2:
+                lb_trans = self.learnable_relu(lb.unsqueeze(0)).squeeze(0)
+                ub_trans = self.learnable_relu(ub.unsqueeze(0)).squeeze(0)
+                
+                d_l = (dW_pos @ lb_trans) - (dW_neg @ ub_trans) + delta_b
+                d_u = (dW_pos @ ub_trans) - (dW_neg @ lb_trans) + delta_b
+                
+                drift_loss += (d_l.pow(2).mean() + d_u.pow(2).mean())
 
-                with torch.no_grad():
-                    target_logits_r = self.prev_linear_layer(feat_r)
-                    target_logits_l = self.prev_linear_layer(feat_l)
+            else:
+                num_old_hinges = self.learnable_relu.num_active_hinges - 1
                 
-                pred_logits_r = self.curr_linear_layer(feat_r)
-                pred_logits_l = self.curr_linear_layer(feat_l)
+                breakpoints = [lb, ub]
                 
-                drift_loss = F.mse_loss(pred_logits_r, target_logits_r) + \
-                             F.mse_loss(pred_logits_l, target_logits_l)
+                if num_old_hinges > 0:
+                    c_r = self.learnable_relu.c_r[:num_old_hinges].squeeze(1)
+                    c_l = self.learnable_relu.c_l[:num_old_hinges].squeeze(1)
+                    
+                    breakpoints.extend([c_r[k] for k in range(num_old_hinges)])
+                    breakpoints.extend([c_l[k] for k in range(num_old_hinges)])
+
+                breaks_stack = torch.stack(breakpoints, dim=0)
+                sorted_breaks, _ = torch.sort(breaks_stack, dim=0)
+                
+                for j in range(sorted_breaks.size(0) - 1):
+                    l_seg = sorted_breaks[j]
+                    u_seg = sorted_breaks[j+1]
+                    
+                    # 1. Identify valid features for this segment
+                    # Mask shape: [Features] (e.g., 768)
+                    valid_mask = (u_seg > l_seg + 1e-6).float() 
+                    
+                    if valid_mask.sum() == 0:
+                        continue
+                        
+                    # 2. Map segment bounds through activation
+                    out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0)
+                    out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0)
+                    
+                    # 3. Mask inputs
+                    out_l = out_l * valid_mask
+                    out_u = out_u * valid_mask
+                    
+                    # 4. Compute Drift
+                    # Result shape: [Classes] (e.g., 200)
+                    d_l = (dW_pos @ out_l) - (dW_neg @ out_u) + delta_b
+                    d_u = (dW_pos @ out_u) - (dW_neg @ out_l) + delta_b
+                    
+                    # 5. Accumulate Loss
+                    # Shape: [Classes] -> scalar
+                    segment_loss = (d_l.pow(2) + d_u.pow(2))
+                    
+                    drift_loss += segment_loss.mean()
 
             # 4. Representation Alignment
             prev_center = (ub + lb) / 2.0
