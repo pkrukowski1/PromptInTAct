@@ -8,11 +8,6 @@ class LearnableReLU(nn.Module):
     1. Learns 'theta' (unbounded parameter).
     2. Bounds it: s = max_dev * tanh(theta).
     3. Telescopes it: w = s_curr - s_prev.
-
-    Guarantees:
-    - Total Slope is STRICTLY within (1 - max_dev, 1 + max_dev).
-    - No Division (Clean Gradients).
-    - No Accumulation (Tasks are decoupled).
     """
 
     def __init__(self, out_features: int, k: int, base_function: nn.Module = nn.Identity()) -> None:
