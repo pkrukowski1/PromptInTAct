@@ -164,15 +164,12 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         feature_drift_loss = zero.clone()
         align_repr_loss = zero.clone()
 
-        # 1. Variance regularization (Compactness)
         acts = self.interval_layer.curr_task_last_batch
         acts_flat = acts.view(acts.size(0), -1)
         batch_var = acts_flat.var(dim=0, unbiased=False).mean()
         var_loss += batch_var
 
         if self.task_id > 0:
-            # 2. Feature Drift Regularization (Backbone Stability)
-
             with torch.no_grad():
                 q, _ = self.feature_extractor(x)
                 q = q[:,0,:]
@@ -189,10 +186,6 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             feature_drift_loss += (
                 (mask * (y_old - acts).pow(2)).sum() / (mask.sum() + 1e-8)
             )
-
-            # =========================================================
-            # 3. Piecewise Drift Regularization
-            # =========================================================
             
             delta_W = self.curr_linear_layer.weight - self.prev_linear_layer.weight
             delta_b = self.curr_linear_layer.bias - self.prev_linear_layer.bias
@@ -224,37 +217,28 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
                 breaks_stack = torch.stack(breakpoints, dim=0)
                 sorted_breaks, _ = torch.sort(breaks_stack, dim=0)
                 
+                total_valid_width = (ub - lb) + 1e-6
+                
                 for j in range(sorted_breaks.size(0) - 1):
                     l_seg = sorted_breaks[j]
                     u_seg = sorted_breaks[j+1]
                     
-                    # 1. Identify valid features for this segment
-                    # Mask shape: [Features] (e.g., 768)
-                    valid_mask = (u_seg > l_seg + 1e-6).float() 
+                    seg_width = (u_seg - l_seg)
+                    valid_mask = (seg_width > 1e-6).float()
                     
-                    if valid_mask.sum() == 0:
-                        continue
-                        
-                    # 2. Map segment bounds through activation
-                    out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0)
-                    out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0)
+                    out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0) * valid_mask
+                    out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0) * valid_mask
                     
-                    # 3. Mask inputs
-                    out_l = out_l * valid_mask
-                    out_u = out_u * valid_mask
-                    
-                    # 4. Compute Drift
-                    # Result shape: [Classes] (e.g., 200)
                     d_l = (dW_pos @ out_l) - (dW_neg @ out_u) + delta_b
                     d_u = (dW_pos @ out_u) - (dW_neg @ out_l) + delta_b
                     
-                    # 5. Accumulate Loss
-                    # Shape: [Classes] -> scalar
-                    segment_loss = (d_l.pow(2) + d_u.pow(2))
+                    segment_drift_sq = (d_l.pow(2) + d_u.pow(2))
                     
-                    drift_loss += segment_loss.mean()
+                    avg_width = (seg_width * valid_mask).sum() / (valid_mask.sum() + 1e-8)
+                    norm_weight = avg_width / total_valid_width.mean()
+                    
+                    drift_loss += segment_drift_sq.mean() * norm_weight
 
-            # 4. Representation Alignment
             prev_center = (ub + lb) / 2.0
             prev_radii  = (ub - lb) / 2.0
             
