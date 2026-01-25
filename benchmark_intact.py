@@ -59,7 +59,7 @@ def benchmark_intact(config_path='configs/dil_imnet-r_prompt_15_tasks.yaml',
     # Override some settings for benchmarking
     config['gpuid'] = [gpuid]
     config['learner_type'] = 'prompt'
-    config['learner_name'] = 'Prompt'
+    config['learner_name'] = 'CODAPrompt'
     config['prompt_param'] = [100, 8, 0.0]  # pool_size, prompt_length, ortho_mu
     config['use_interval_activation'] = True
     config['model_type'] = 'zoo'
@@ -175,8 +175,8 @@ def benchmark_intact(config_path='configs/dil_imnet-r_prompt_15_tasks.yaml',
         'dil': config['dil']
     }
     
-    # Create learner (InTAct)
-    learner = learners.prompt.Prompt(learner_config)
+    # Create learner (InTAct with CODAPrompt)
+    learner = learners.prompt.CODAPrompt(learner_config)
     learner.add_valid_output_dim(len(tasks[0]))
     
     # Set task id
