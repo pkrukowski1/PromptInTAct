@@ -36,11 +36,11 @@ def get_gpu_memory_usage():
     return 0.0, 0.0
 
 
-def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml', 
+def benchmark_intact(config_path='configs/dil_imnet-r_prompt_15_tasks.yaml', 
                      num_batches=None, 
                      gpuid=0):
     """
-    Run InTAct benchmark on ImageNet-R
+    Run InTAct benchmark on DIL_ImageNet_R (15 tasks)
     
     Args:
         config_path: Path to config file
@@ -50,7 +50,7 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
     
     # Load config
     print("="*80)
-    print("InTAct Benchmark on ImageNet-R")
+    print("InTAct Benchmark on DIL_ImageNet_R (15 tasks)")
     print("="*80)
     
     with open(config_path, 'r') as f:
@@ -64,12 +64,12 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
     config['use_interval_activation'] = True
     config['model_type'] = 'zoo'
     config['model_name'] = 'vit_pt_imnet'
-    config['dataset'] = 'ImageNet_R'
+    config['dataset'] = 'DIL_ImageNet_R'
     config['dataroot'] = config.get('dataroot', 'data')
     config['workers'] = config.get('workers', 1)
     config['batch_size'] = config.get('batch_size', 64)
-    config['first_split_size'] = config.get('first_split_size', 40)
-    config['other_split_size'] = config.get('other_split_size', 40)
+    config['first_split_size'] = 200  # DIL uses all 200 classes in first task
+    config['other_split_size'] = 0     # DIL uses 0 for other splits
     config['rand_split'] = config.get('rand_split', True)
     config['validation'] = config.get('validation', False)
     config['train_aug'] = config.get('train_aug', True)
@@ -87,7 +87,8 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
     config['overwrite'] = True
     config['out_dim'] = 200
     config['top_k'] = 1
-    config['dil'] = False
+    config['dil'] = True
+    config['domain_num'] = 15
     
     # Set random seed
     seed = 0
@@ -97,11 +98,12 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
         torch.cuda.manual_seed(seed)
     
     # Setup dataset
-    print("\n[1/5] Setting up ImageNet-R dataset...")
-    Dataset = dataloaders.iIMAGENET_R
+    print("\n[1/5] Setting up DIL_ImageNet_R dataset (15 domains)...")
+    Dataset = dataloaders.iDIL_IMAGENET_R
     num_classes = 200
+    domain_num = 15
     
-    # Create task splits
+    # Create task splits (DIL: 15 domains, all 200 classes per domain)
     class_order = np.arange(num_classes)
     if config['rand_split']:
         np.random.shuffle(class_order)
@@ -113,13 +115,14 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
         tasks.append(class_order[p:p+inc])
         p += inc
     
-    num_tasks = len(tasks)
-    print(f"   Number of tasks: {num_tasks}")
+    num_tasks = domain_num  # For DIL, num_tasks = domain_num
+    print(f"   Number of domains/tasks: {num_tasks}")
     print(f"   Classes per task: {[len(t) for t in tasks]}")
+    print(f"   Note: DIL uses all classes across different domains")
     
     # Create dataloader for first task
     resize_imnet = True
-    train_transform = get_transform(dataset='ImageNet_R', phase='train', 
+    train_transform = get_transform(dataset='DIL_ImageNet_R', phase='train', 
                                    aug=config['train_aug'], resize_imnet=resize_imnet)
     
     train_dataset = Dataset(
@@ -132,7 +135,6 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
         seed=seed, 
         rand_split=config['rand_split'], 
         validation=config['validation'],
-        data_root_dir=config.get('data_root_dir', '/shared/sets/datasets/')
     )
     
     # Load first task
@@ -321,8 +323,8 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Benchmark InTAct on ImageNet-R')
-    parser.add_argument('--config', type=str, default='configs/imnet-r_prompt_5_tasks.yaml',
+    parser = argparse.ArgumentParser(description='Benchmark InTAct on DIL_ImageNet_R (15 tasks)')
+    parser.add_argument('--config', type=str, default='configs/dil_imnet-r_prompt_15_tasks.yaml',
                        help='Path to config file')
     parser.add_argument('--num_batches', type=int, default=None,
                        help='Number of batches to benchmark (default: None = full dataset)')
