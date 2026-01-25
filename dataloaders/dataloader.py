@@ -715,7 +715,7 @@ class iIMAGENET_CR(iDIL_Dataset):
         self.data = []
         self.targets = []
         self.data_root_c = os.path.join(self.data_root_dir, 'imagenet-c')
-        self.data_root_r = os.path.join(self.data_root_dir, 'imagenet-r')
+        self.data_root_r = os.path.join(self.data_root_dir, 'imagenet-r_InTAct', 'imagenet-r')
         self.image_list_root = "dataloaders/splits"
         
         mode = 'train' if (self.train or self.validation) else 'test'
