@@ -37,14 +37,14 @@ def get_gpu_memory_usage():
 
 
 def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml', 
-                     num_batches=50, 
+                     num_batches=None, 
                      gpuid=0):
     """
     Run InTAct benchmark on ImageNet-R
     
     Args:
         config_path: Path to config file
-        num_batches: Number of batches to benchmark
+        num_batches: Number of batches to benchmark (None = full dataset)
         gpuid: GPU device ID
     """
     
@@ -227,7 +227,10 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
     
     # Benchmark training - following trainer.py learn_batch pattern
     print("\n[5/5] Benchmarking training...")
-    print(f"   Running {num_batches} batches...")
+    if num_batches is None:
+        print(f"   Processing full dataset (1 epoch)...")
+    else:
+        print(f"   Running {num_batches} batches...")
     
     # Setup data weighting (following trainer pattern)
     learner.data_weighting(train_dataset)
@@ -241,54 +244,44 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
     learner.model.train()
     batch_count = 0
     
-    for epoch in range(100):  # Large number to ensure we get enough batches
-        batch_timer.tic()
-        for i, (x, y, task) in enumerate(train_loader):
-            if batch_count >= num_batches:
-                break
-            
-            # verify in train mode
-            learner.model.train()
-            
-            # send data to gpu
-            if learner.gpu:
-                x = x.cuda()
-                y = y.cuda()
-            
-            # model update (exactly as in trainer)
-            loss, output = learner.update_model(x, y, interval_penalization=interval_penalization)
-            
-            # measure elapsed time (exactly as in trainer)
-            batch_time.update(batch_timer.toc())
-            batch_timer.tic()
-            
-            # measure accuracy and record loss
-            y = y.detach()
-            accumulate_acc(output, y, task, acc, topk=(learner.top_k,))
-            losses.update(loss, y.size(0))
-            batch_timer.tic()
-            
-            batch_count += 1
-            
-            if batch_count % 10 == 0:
-                print(f"   Batch {batch_count}/{num_batches}: {batch_time.avg:.4f}s avg, {batch_time.val:.4f}s current")
-        
-        if batch_count >= num_batches:
+    # Run one epoch (or specified number of batches)
+    batch_timer.tic()
+    for i, (x, y, task) in enumerate(train_loader):
+        # Check if we should stop (only if num_batches is specified)
+        if num_batches is not None and batch_count >= num_batches:
             break
         
-        # Reset meters at end of epoch (like trainer)
-        if batch_count < num_batches:
-            losses = AverageMeter()
-            acc = AverageMeter()
+        # verify in train mode
+        learner.model.train()
+        
+        # send data to gpu
+        if learner.gpu:
+            x = x.cuda()
+            y = y.cuda()
+        
+        # model update (exactly as in trainer)
+        loss, output = learner.update_model(x, y, interval_penalization=interval_penalization)
+        
+        # measure elapsed time (exactly as in trainer)
+        batch_time.update(batch_timer.toc())
+        batch_timer.tic()
+        
+        # measure accuracy and record loss
+        y = y.detach()
+        accumulate_acc(output, y, task, acc, topk=(learner.top_k,))
+        losses.update(loss, y.size(0))
+        batch_timer.tic()
+        
+        batch_count += 1
+        
+        if batch_count % 10 == 0:
+            if num_batches is None:
+                print(f"   Batch {batch_count}: {batch_time.avg:.4f}s avg, {batch_time.val:.4f}s current")
+            else:
+                print(f"   Batch {batch_count}/{num_batches}: {batch_time.avg:.4f}s avg, {batch_time.val:.4f}s current")
     
     # Get GPU memory usage
     memory_allocated, memory_reserved = get_gpu_memory_usage()
-    
-    # Calculate statistics
-    avg_batch_time = np.mean(batch_times)
-    std_batch_time = np.std(batch_times)
-    min_batch_time = np.min(batch_times)
-    max_batch_time = np.max(batch_times)
     
     # Get final average batch time (as trainer returns batch_time.avg)
     avg_batch_time = batch_time.avg
@@ -323,10 +316,16 @@ def benchmark_intact(config_path='configs/imnet-r_prompt_5_tasks.yaml',
         'gpu_memory_reserved_gb': memory_reserved,
         'avg_batch_time_s': avg_batch_time,
         'final_loss': losses.avg,
-        'final_accuracy': acc.avgtr, default='configs/imnet-r_prompt_5_tasks.yaml',
+        'final_accuracy': acc.avg
+    }
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Benchmark InTAct on ImageNet-R')
+    parser.add_argument('--config', type=str, default='configs/imnet-r_prompt_5_tasks.yaml',
                        help='Path to config file')
-    parser.add_argument('--num_batches', type=int, default=50,
-                       help='Number of batches to benchmark')
+    parser.add_argument('--num_batches', type=int, default=None,
+                       help='Number of batches to benchmark (default: None = full dataset)')
     parser.add_argument('--gpuid', type=int, default=0,
                        help='GPU device ID')
     
