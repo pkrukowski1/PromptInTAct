@@ -5,6 +5,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from functools import partial
 
 from timm.models.vision_transformer import _cfg, PatchEmbed
@@ -48,10 +49,13 @@ class MlpWithLearnableActFnc(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x):
+    def forward(self, x, prompt=None):
         x = self.fc1(x)
-        x = self.interval_layer(x)
-        x = self.learnable_relu(x)
+        if prompt is not None:
+            x = self.interval_layer(x)
+            x = self.learnable_relu(x)
+        else:
+            x = F.gelu(x)
         x = self.drop(x)
         x = self.fc2(x)
         x = self.drop(x)
@@ -148,7 +152,7 @@ class BlockWithLearnableActFnc(nn.Module):
 
     def forward(self, x, register_hook=False, prompt=None):
         x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook, prompt=prompt))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x), prompt=prompt))
         return x
     
 class VisionTransformer(nn.Module):
