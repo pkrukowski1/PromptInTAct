@@ -161,7 +161,6 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
         var_loss = zero.clone()
         drift_loss = zero.clone()
         feature_drift_loss = zero.clone()
-        align_repr_loss = zero.clone()
 
         acts = self.interval_layer.curr_task_last_batch
         acts_flat = acts.view(acts.size(0), -1)
@@ -192,7 +191,7 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
             dW_pos = torch.relu(delta_W)
             dW_neg = torch.relu(-delta_W)
 
-            if self.task_id < 2:
+            if self.task_id == 1:
                 lb_trans = self.learnable_relu(lb.unsqueeze(0)).squeeze(0)
                 ub_trans = self.learnable_relu(ub.unsqueeze(0)).squeeze(0)
                 
@@ -206,52 +205,28 @@ class InTActPlusPlusClsHeadRegularization(nn.Module):
                 
                 breakpoints = [lb, ub]
                 
-                if num_old_hinges > 0:
-                    c_r = self.learnable_relu.c_r[:num_old_hinges].squeeze(1)
-                    c_l = self.learnable_relu.c_l[:num_old_hinges].squeeze(1)
-                    
-                    breakpoints.extend([c_r[k] for k in range(num_old_hinges)])
-                    breakpoints.extend([c_l[k] for k in range(num_old_hinges)])
+                c_r = self.learnable_relu.c_r[:num_old_hinges].squeeze(1)
+                c_l = self.learnable_relu.c_l[:num_old_hinges].squeeze(1)
+                
+                breakpoints.extend([c_r[k] for k in range(num_old_hinges)])
+                breakpoints.extend([c_l[k] for k in range(num_old_hinges)])
 
                 breaks_stack = torch.stack(breakpoints, dim=0)
                 sorted_breaks, _ = torch.sort(breaks_stack, dim=0)
                 
-                total_valid_width = (ub - lb) + 1e-6
-
                 for j in range(sorted_breaks.size(0) - 1):
                     l_seg = sorted_breaks[j]
                     u_seg = sorted_breaks[j+1]
 
-                    seg_width = (u_seg - l_seg)
-                    valid_mask = (seg_width > 1e-6).float()
-
-                    if valid_mask.sum() == 0:
-                        continue
-
-                    out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0) * valid_mask
-                    out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0) * valid_mask
+                    out_l = self.learnable_relu(l_seg.unsqueeze(0)).squeeze(0)
+                    out_u = self.learnable_relu(u_seg.unsqueeze(0)).squeeze(0)
 
                     d_l = (dW_pos @ out_l) - (dW_neg @ out_u) + delta_b
                     d_u = (dW_pos @ out_u) - (dW_neg @ out_l) + delta_b
-
-                    segment_drift_sq = (d_l.pow(2) + d_u.pow(2))
-                    avg_width = (seg_width * valid_mask).sum() / (valid_mask.sum() + 1e-8)
-                    norm_weight = avg_width / total_valid_width.mean()
                     
-                    drift_loss += segment_drift_sq.mean() * norm_weight
-
-            prev_center = (ub + lb) / 2.0
-            prev_radii  = (ub - lb) / 2.0
-            
-            new_lb_b, _ = acts_flat.min(dim=0)
-            new_ub_b, _ = acts_flat.max(dim=0)
-            new_center = (new_ub_b + new_lb_b) / 2.0
-            
-            center_loss = torch.norm(new_center - prev_center, p=2)
-            align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
+                    drift_loss += (d_l.pow(2) + d_u.pow(2)).mean()
 
         return loss + \
                 self.lambda_var * var_loss + \
                 self.lambda_drift * drift_loss + \
-                self.lambda_feat * feature_drift_loss + \
-                align_repr_loss
+                self.lambda_feat * feature_drift_loss
