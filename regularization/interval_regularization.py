@@ -1,11 +1,12 @@
-from copy import deepcopy
-from typing import Union
-
 import torch
 import torch.nn as nn
+import numpy as np
 
 from models.layers.interval_activation import IntervalActivation
 from models.zoo import L2P, DualPrompt, CodaPrompt
+
+from copy import deepcopy
+from typing import Union
 
 class IntervalPenalization(nn.Module):
     """
@@ -123,7 +124,7 @@ class IntervalPenalization(nn.Module):
             for layer in self.curr_classifier_head:
                 if isinstance(layer, IntervalActivation):
                     layer.reset_range()
-                    
+                    print(f"Volume of the cumulative hypercube: {np.max(layer.max - layer.min)}")
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
         """
         Computes the interval-based penalization loss and adds it to the task loss.
