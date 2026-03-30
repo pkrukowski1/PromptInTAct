@@ -121,13 +121,11 @@ class IntervalPenalization(nn.Module):
             for p in self.old_prompt.parameters():
                 p.requires_grad = False
 
-            for layer in self.curr_classifier_head:
+            for idx, layer in enumerate(self.curr_classifier_head):
                 if isinstance(layer, IntervalActivation):
                     layer.reset_range()
+                    print(f"Volume of the cumulative hypercube for {idx+1}-th layer in classification head: {torch.mean(layer.max - layer.min).item()}")
         
-        for idx, layer in enumerate(self.curr_classifier_head):
-            if isinstance(layer, IntervalActivation):
-                print(f"Volume of the cumulative hypercube for {idx+1}-th layer in classification head: {np.max(layer.max - layer.min)}")
 
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
         """
