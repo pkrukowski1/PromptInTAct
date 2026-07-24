@@ -74,6 +74,12 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         """
         self.current_iteration = iteration
 
+    def set_total_iterations(self, total_iterations):
+        """
+        Dynamically updates the schedule to adjust over half of the provided iterations.
+        """
+        self.iterations_to_adjust = int(total_iterations // 2)
+
     def get_current_perturbated_eps(self):
         """
         Calculates the scheduled perturbated epsilon based on the current iteration.
