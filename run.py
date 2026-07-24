@@ -47,6 +47,15 @@ def create_args():
     parser.add_argument('--use_align_loss', default=False, action='store_true', 
                         help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
 
+    # HINT model args
+    parser.add_argument('--use_hint', default=False, action='store_true', 
+                            help="The flag to indicate if HINT protection should be used instead of InTAct")
+    parser.add_argument('--hnet_embedding_size', type=int, default=24, help="Dimension of the hypernetwork embedding")
+    parser.add_argument('--perturbated_epsilon', type=float, default=1.0, help="Hypercube radius in the hypernetwork embedding space")
+    parser.add_argument('--hnet_loss_reg', type=float, default=0.01, help="Hypernetwork regularization strength")
+    parser.add_argument('--hnet_param', nargs="+", type=int, default=[100, 100],
+                             help="Number of neurons in each hypernetwork layer")
+
     # Data Args
     parser.add_argument('--data_root_dir', type=str, default="/shared/sets/datasets/",
                         help="Root directory where datasets are stored")
