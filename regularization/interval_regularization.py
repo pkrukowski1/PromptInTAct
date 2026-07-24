@@ -156,20 +156,34 @@ class IntervalPenalization(nn.Module):
                     cum_boxes.append((l.min.clone(), l.max.clone()))
         if not cum_boxes:
             return result
-        for task_idx, task_boxes in enumerate(self._task_box_history):
-            for layer_idx, box in enumerate(task_boxes):
+        eps = 1e-10
+        cum_log_vols = []
+        for cm, cM in cum_boxes:
+            cum_log_vols.append(torch.sum(torch.log((cM - cm).clamp(min=eps))).item())
+        for layer_idx in range(len(cum_boxes)):
+            log_V_i_list = []
+            for task_idx, task_boxes in enumerate(self._task_box_history):
+                if len(task_boxes) <= layer_idx:
+                    continue
+                box = task_boxes[layer_idx]
                 if box is None or box[0] is None:
                     continue
-                if len(cum_boxes) <= layer_idx:
-                    continue
                 tmin, tmax = box
-                cm, cM = cum_boxes[layer_idx]
-                pv = torch.prod(tmax - tmin).item()
-                cv = torch.prod(cM - cm).item()
-
-                cv = max(cv, 1.0)
-                V_ratio = pv / cv
-                result[f"V_ratio_task{task_idx}_layer{layer_idx}"] = V_ratio
+                log_V_i = torch.sum(torch.log((tmax - tmin).clamp(min=eps))).item()
+                log_ratio_i = log_V_i - cum_log_vols[layer_idx]
+                V_ratio_i = float(np.exp(log_ratio_i))
+                result[f"V_ratio_task{task_idx}_layer{layer_idx}"] = V_ratio_i
+                result[f"log_ratio_task{task_idx}_layer{layer_idx}"] = log_ratio_i
+                log_V_i_list.append(log_V_i)
+            if log_V_i_list:
+                log_total_volume = float(
+                    torch.logsumexp(torch.tensor(log_V_i_list, dtype=torch.float64), dim=0).item()
+                )
+                log_V_cum = cum_log_vols[layer_idx]
+                V_log_ratio = log_total_volume - log_V_cum
+                V_ratio = float(np.exp(V_log_ratio))
+                result[f"V_ratio_sum_layer{layer_idx}"] = V_ratio
+                result[f"V_log_ratio_sum_layer{layer_idx}"] = V_log_ratio
         c_rate = self._violation_sum / max(self._sample_sum, 1)
         result["C_rate"] = c_rate
         return result
