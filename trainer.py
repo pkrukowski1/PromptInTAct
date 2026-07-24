@@ -272,6 +272,8 @@ class Trainer:
 
             if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
 
+            torch.cuda.empty_cache()
+
         if self.learner_config.get('use_interval_activation') and hasattr(self, 'interval_penalization'):
             metrics = self.interval_penalization.finalize_metrics()
             if metrics:

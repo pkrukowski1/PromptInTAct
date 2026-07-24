@@ -133,7 +133,7 @@ class IntervalPenalization(nn.Module):
     def _snapshot_layer(self, task_id: int, layer_idx: int, layer: IntervalActivation) -> None:
         if not self.use_metrics or task_id < 0:
             return
-        tmin, tmax = layer.get_task_bounds()
+        tmin, tmax = self._get_task_bounds(layer)
         while len(self._task_box_history) <= task_id:
             self._task_box_history.append([])
         boxes = self._task_box_history[task_id]
@@ -181,21 +181,35 @@ class IntervalPenalization(nn.Module):
                 self._snapshot_layer(self.task_id, idx, layer)
         return self.compute_metrics()
 
+    def _get_task_bounds(self, layer: IntervalActivation):
+        """Compute per-task (min, max) from test_act_buffer, always on CPU."""
+        if len(layer.test_act_buffer) == 0:
+            return None, None
+        activations = torch.cat(layer.test_act_buffer, dim=0)
+        n = activations.size(0)
+        if n == 0:
+            return None, None
+        sorted_buf, _ = torch.sort(activations, dim=0)
+        l_idx = int(np.clip(int(n * layer.lower_percentile), 0, n - 1))
+        u_idx = int(np.clip(int(n * layer.upper_percentile), 0, n - 1))
+        return sorted_buf[l_idx].clone(), sorted_buf[u_idx].clone()
+
     def _track_metrics(self, acts: torch.Tensor, layer_idx: int, lb, ub) -> None:
         if not self.use_metrics:
             return
-        bmin, _ = acts.min(dim=0)
-        bmax, _ = acts.max(dim=0)
-        if self._task_cur_min[layer_idx] is None:
-            self._task_cur_min[layer_idx] = bmin.clone()
-            self._task_cur_max[layer_idx] = bmax.clone()
-        else:
-            self._task_cur_min[layer_idx] = torch.minimum(self._task_cur_min[layer_idx], bmin)
-            self._task_cur_max[layer_idx] = torch.maximum(self._task_cur_max[layer_idx], bmax)
-        if lb is not None and ub is not None:
-            violated = ((acts < lb) | (acts > ub)).float().sum()
-            self._violation_sum += violated.item()
-            self._sample_sum += acts.numel()
+        with torch.no_grad():
+            bmin = acts.min(dim=0).values.cpu()
+            bmax = acts.max(dim=0).values.cpu()
+            if self._task_cur_min[layer_idx] is None:
+                self._task_cur_min[layer_idx] = bmin
+                self._task_cur_max[layer_idx] = bmax
+            else:
+                self._task_cur_min[layer_idx] = torch.minimum(self._task_cur_min[layer_idx], bmin)
+                self._task_cur_max[layer_idx] = torch.maximum(self._task_cur_max[layer_idx], bmax)
+            if lb is not None and ub is not None:
+                violated = ((acts < lb) | (acts > ub)).sum().item()
+                self._violation_sum += violated
+                self._sample_sum += acts.numel()
         
 
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
