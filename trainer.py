@@ -164,7 +164,8 @@ class Trainer:
                 var_loss_scale=args.var_loss_scale, 
                 internal_repr_drift_loss_scale=args.internal_repr_drift_loss_scale,
                 feature_loss_scale=args.feature_loss_scale,
-                use_align_loss=args.use_align_loss
+                use_align_loss=args.use_align_loss,
+                use_metrics=args.use_intact_metrics
             )
 
     def task_eval(self, t_index, local=False, task='acc'):
@@ -270,6 +271,13 @@ class Trainer:
                 np.savetxt(save_file, np.asarray(temp_table[mkey]), delimiter=",", fmt='%.2f')  
 
             if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
+
+        if self.learner_config.get('use_interval_activation') and hasattr(self, 'interval_penalization'):
+            metrics = self.interval_penalization.finalize_metrics()
+            if metrics:
+                print("=== InTAct Metrics ===")
+                for k, v in metrics.items():
+                    print(f"  {k}: {v}")
 
         return avg_metrics 
     

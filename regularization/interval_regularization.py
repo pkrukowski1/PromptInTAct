@@ -36,7 +36,8 @@ class IntervalPenalization(nn.Module):
             var_loss_scale: float = 0.01,
             internal_repr_drift_loss_scale: float = 1.0,
             feature_loss_scale: float = 1.0,
-            use_align_loss: bool = True
+            use_align_loss: bool = True,
+            use_metrics: bool = False
         ) -> None:
         """
         Initializes IntervalPenalization with specified loss scales.
@@ -46,6 +47,7 @@ class IntervalPenalization(nn.Module):
             internal_repr_drift_loss_scale (float, optional): Scale factor for output / weight drift loss. Defaults to 1.0.
             feature_loss_scale (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
             use_align_loss (bool, optional): Whether to include activation center alignment loss. Defaults to True.
+            use_metrics (bool, optional): If True, track occupancy ratio and constraint activation rate. Defaults to False.
         """
         
         super().__init__()
@@ -55,6 +57,7 @@ class IntervalPenalization(nn.Module):
         self.internal_repr_drift_loss_scale = internal_repr_drift_loss_scale
         self.feature_loss_scale = feature_loss_scale
         self.use_align_loss = use_align_loss
+        self.use_metrics = use_metrics
 
         self.params_buffer = {}
 
@@ -63,6 +66,13 @@ class IntervalPenalization(nn.Module):
         self.feature_extractor = None
 
         self.prompt = None
+
+        self._task_box_history = []
+        self._task_cur_min = []
+        self._task_cur_max = []
+        self._violation_sum = 0.0
+        self._sample_sum = 0.0
+        self._n_interval_layers = 0
 
     def detach_interval_last_batches(self, curr_classifier_head: nn.Sequential) -> None:
         """
@@ -86,19 +96,6 @@ class IntervalPenalization(nn.Module):
         feature_extractor: nn.Sequential,
         prompt: Union[CodaPrompt, L2P, DualPrompt]
     ) -> None:
-        """
-        Sets up the penalization module for the current task.
-
-        Clones previous task parameters and prompts, freezes them, and resets
-        interval activation bounds for the current classifier head.
-
-        Args:
-            task_id (int): Index of the current task.
-            curr_classifier_head (nn.Sequential): Classifier head for current task.
-            feature_extractor (nn.Sequential): Shared feature extractor (frozen).
-            prompt (CodaPrompt | L2P | DualPrompt): Prompt module for the current task.
-        """
-
         self.task_id = task_id
         self.curr_classifier_head = curr_classifier_head
         self.prompt = prompt
@@ -107,14 +104,13 @@ class IntervalPenalization(nn.Module):
             self.params_buffer = {
                 name: p.detach().clone()
                 for name, p in self.curr_classifier_head.named_parameters()
-        }
+            }
 
             self.detach_interval_last_batches(curr_classifier_head)
             self.old_classifier_head = deepcopy(curr_classifier_head)
             for p in self.old_classifier_head.parameters():
                 p.requires_grad = False
 
-            # Feature extractor is shared and frozen, so we just keep a reference to it
             self.feature_extractor = feature_extractor
 
             self.old_prompt = deepcopy(self.prompt)
@@ -123,8 +119,83 @@ class IntervalPenalization(nn.Module):
 
             for idx, layer in enumerate(self.curr_classifier_head):
                 if isinstance(layer, IntervalActivation):
+                    self._snapshot_layer(task_id - 1, idx, layer)
                     layer.reset_range()
                     print(f"Volume of the cumulative hypercube for {idx+1}-th layer in classification head: {torch.mean(layer.max - layer.min).item()}")
+
+        layers = list(self.curr_classifier_head.children())
+        self._n_interval_layers = sum(1 for l in layers if isinstance(l, IntervalActivation))
+        self._task_cur_min = [None] * self._n_interval_layers
+        self._task_cur_max = [None] * self._n_interval_layers
+        self._violation_sum = 0.0
+        self._sample_sum = 0.0
+
+    def _snapshot_layer(self, task_id: int, layer_idx: int, layer: IntervalActivation) -> None:
+        if not self.use_metrics or task_id < 0:
+            return
+        tmin, tmax = layer.get_task_bounds()
+        while len(self._task_box_history) <= task_id:
+            self._task_box_history.append([])
+        boxes = self._task_box_history[task_id]
+        while len(boxes) <= layer_idx:
+            boxes.append(None)
+        boxes[layer_idx] = (tmin, tmax)
+
+    def compute_metrics(self) -> dict:
+        result = {}
+        if not self.use_metrics:
+            return result
+        cum_boxes = []
+        layers = list(self.curr_classifier_head.children())
+        for l in layers:
+            if isinstance(l, IntervalActivation):
+                if l.min is not None and l.max is not None:
+                    cum_boxes.append((l.min.clone(), l.max.clone()))
+        if not cum_boxes:
+            return result
+        for task_idx, task_boxes in enumerate(self._task_box_history):
+            for layer_idx, box in enumerate(task_boxes):
+                if box is None or box[0] is None:
+                    continue
+                if len(cum_boxes) <= layer_idx:
+                    continue
+                tmin, tmax = box
+                cm, cM = cum_boxes[layer_idx]
+                pv = torch.prod(tmax - tmin).item()
+                cv = torch.prod(cM - cm).item()
+
+                cv = max(cv, 1.0)
+                V_ratio = pv / cv
+                result[f"V_ratio_task{task_idx}_layer{layer_idx}"] = V_ratio
+        c_rate = self._violation_sum / max(self._sample_sum, 1)
+        result["C_rate"] = c_rate
+        return result
+
+    def finalize_metrics(self) -> dict:
+        """Snapshot the last task and return metrics. Call after training loop completes."""
+        if not self.use_metrics:
+            return {}
+        layers = list(self.curr_classifier_head.children())
+        for idx, layer in enumerate(layers):
+            if isinstance(layer, IntervalActivation):
+                self._snapshot_layer(self.task_id, idx, layer)
+        return self.compute_metrics()
+
+    def _track_metrics(self, acts: torch.Tensor, layer_idx: int, lb, ub) -> None:
+        if not self.use_metrics:
+            return
+        bmin, _ = acts.min(dim=0)
+        bmax, _ = acts.max(dim=0)
+        if self._task_cur_min[layer_idx] is None:
+            self._task_cur_min[layer_idx] = bmin.clone()
+            self._task_cur_max[layer_idx] = bmax.clone()
+        else:
+            self._task_cur_min[layer_idx] = torch.minimum(self._task_cur_min[layer_idx], bmin)
+            self._task_cur_max[layer_idx] = torch.maximum(self._task_cur_max[layer_idx], bmax)
+        if lb is not None and ub is not None:
+            violated = ((acts < lb) | (acts > ub)).float().sum()
+            self._violation_sum += violated.item()
+            self._sample_sum += acts.numel()
         
 
     def forward(self, x: torch.Tensor, loss: torch.Tensor) -> torch.Tensor:
@@ -155,7 +226,7 @@ class IntervalPenalization(nn.Module):
         align_repr_loss = zero.clone()
 
 
-        for idx in interval_act_layers:
+        for layer_i, idx in enumerate(interval_act_layers):
             acts = layers[idx].curr_task_last_batch
 
             acts_flat = acts.view(acts.size(0), -1)
@@ -165,6 +236,7 @@ class IntervalPenalization(nn.Module):
             if self.task_id > 0:
                 lb = layers[idx].min.to(x.device)
                 ub = layers[idx].max.to(x.device)
+                self._track_metrics(acts_flat, layer_i, lb, ub)
 
                 # Drift only at the FIRST IntervalActivation
                 if idx == interval_act_layers[0]:

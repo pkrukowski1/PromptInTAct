@@ -90,6 +90,18 @@ class IntervalActivation(nn.Module):
 
         self.test_act_buffer = []
 
+    def get_task_bounds(self):
+        """Compute per-task (min, max) from test_act_buffer without modifying cumulative bounds."""
+        if len(self.test_act_buffer) == 0:
+            return None, None
+        activations = torch.cat(self.test_act_buffer, dim=0)
+        sorted_buf, _ = torch.sort(activations, dim=0)
+        n = sorted_buf.size(0)
+        if n == 0:
+            return None, None
+        l_idx = int(np.clip(int(n * self.lower_percentile), 0, n - 1))
+        u_idx = int(np.clip(int(n * self.upper_percentile), 0, n - 1))
+        return sorted_buf[l_idx].clone(), sorted_buf[u_idx].clone()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

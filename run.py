@@ -46,6 +46,8 @@ def create_args():
         " when interval regularization is used")
     parser.add_argument('--use_align_loss', default=False, action='store_true', 
                         help="The flag to indicate if hypercube distance loss should be used or not when interval regularization is used")
+    parser.add_argument('--use_intact_metrics', default=False, action='store_true',
+                        help="Track occupancy ratio and constraint activation rate metrics")
 
     # Data Args
     parser.add_argument('--data_root_dir', type=str, default="/shared/sets/datasets/",
