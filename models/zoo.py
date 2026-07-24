@@ -3,6 +3,7 @@ import torch.nn as nn
 from .vit import VisionTransformer
 import copy
 from .layers.interval_activation import IntervalActivation
+from .hint.interval_modules import parse_logits
 
 # Our method!
 class CodaPrompt(nn.Module):
@@ -348,17 +349,25 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
 class ViTZoo(nn.Module):
     def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None,
-                 use_interval_activation=False):
+                 use_interval_activation=False, use_hint=False, *hint_args):
         super(ViTZoo, self).__init__()
-
-        # get last layer with a potential interval activation function
-        self.classifier = nn.Sequential(
-            IntervalActivation(768, use_non_linear_transform=False),
-            nn.Linear(768, num_classes)
-        )
+  
+        if use_interval_activation:
+            self.classifier = nn.Sequential(
+                IntervalActivation(768, use_non_linear_transform=False),
+                nn.Linear(768, num_classes)
+            )
+        elif use_hint:
+            # HNET is created in Trainer due to some simplifications
+            self.hnet = None
+        else:
+             self.classifier = nn.Sequential(
+                            nn.Linear(768, num_classes)
+                        )
        
         self.prompt_flag = prompt_flag
         self.task_id = None
+        self.use_hint = use_hint
 
         # get feature encoder
         if pt:
@@ -398,14 +407,27 @@ class ViTZoo(nn.Module):
             out = out[:,0,:]
         out = out.view(out.size(0), -1)
         if not pen:
-            out = self.classifier(out)
+            if not self.use_hint:
+                out = self.classifier(out)
+            else:
+                lower_weights, target_weights, upper_weights, _ = self.hnet.forward(cond_id=self.task_id, 
+                                                                                    return_extended_output=True)
+                predictions = self.classifier.forward(x=out,
+                                                upper_weights=upper_weights,
+                                                middle_weights=target_weights,
+                                                lower_weights=lower_weights)
             
-        if self.prompt is not None and train:
+                lower_pred, out, upper_pred = parse_logits(predictions)
+            
+        if not self.use_hint and self.prompt is not None and train:
             return out, prompt_loss
+        elif self.use_hint and self.prompt is not None and train:
+            return out, prompt_loss, lower_pred, upper_pred
         else:
             return out
             
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, use_interval_activation=False):
+def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None, 
+                 use_interval_activation=False, use_hint=False):
     return ViTZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param,
-                  use_interval_activation=use_interval_activation)
+                  use_interval_activation=use_interval_activation, use_hint=use_hint)
 
