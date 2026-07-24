@@ -54,49 +54,76 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         """
         Getter method for perturbation vectors.
         """
-
         return self._perturbated_eps_T
     
     def detach_tensor(self, idx):
         """
         This method detaches an embedding from the computation graph.
-
-        Parameters:
-        -----------
-            idx: int
-                Index of the embedding and corresponding perturbation
-                vector which will be frozen.
         """
         self.conditional_params[idx].requires_grad_(False)
 
+    def get_task_bounds(self, idx, perturbated_eps):
+        """
+        Helper method to compute the lower and upper bounds for a specific task embedding,
+        enforcing the cosine transformation to guarantee overlapping support.
+        """
+        # Fetch raw embedding
+        h_raw = self.conditional_params[idx]
+        
+        # Apply cosine transformation to bound the center
+        sigma = 0.5 * perturbated_eps / self._cond_in_size
+        h_cos = sigma * torch.cos(h_raw)
+        
+        # Calculate radius via softmax
+        eps = perturbated_eps * F.softmax(self._perturbated_eps_T[idx], dim=-1)
+        
+        return h_cos - eps, h_cos + eps
+
+    def get_universal_intersection(self, cond_id, perturbated_eps):
+        """
+        Computes the geometric intersection between the cumulative hypercube of all prior 
+        tasks (0 to cond_id - 1) and the current task embedding (cond_id).
+        """
+        # If no prior tasks exist, just return the current task's transformed bounds
+        if cond_id == 0:
+            lower, upper = self.get_task_bounds(0, perturbated_eps)
+            h = (upper + lower) / 2.0
+            eps = (upper - lower) / 2.0
+            return h.to(self._device), eps.to(self._device)
+
+        prior_lowers = []
+        prior_uppers = []
+        
+        # 1. Compute bounding boxes for all prior tasks (with cosine transformation applied)
+        for i in range(cond_id):
+            l, u = self.get_task_bounds(i, perturbated_eps)
+            prior_lowers.append(l)
+            prior_uppers.append(u)
+            
+        prior_lower_bound = torch.stack(prior_lowers).min(dim=0)[0]
+        prior_upper_bound = torch.stack(prior_uppers).max(dim=0)[0]
+        
+        # 2. Compute bounds for the current task
+        curr_lower_bound, curr_upper_bound = self.get_task_bounds(cond_id, perturbated_eps)
+        
+        # 3. Compute the intersection (max of lowers, min of uppers)
+        intersect_lower = torch.max(prior_lower_bound, curr_lower_bound)
+        intersect_upper = torch.min(prior_upper_bound, curr_upper_bound)
+        
+        # 4. Convert intersection bounds back to center (h) and radius (eps)
+        universal_h = (intersect_upper + intersect_lower) / 2.0
+        universal_eps = (intersect_upper - intersect_lower) / 2.0
+        
+        # Safety ReLU in case the intersection is somehow perfectly empty (negative radius)
+        universal_eps = F.relu(universal_eps) 
+        
+        return universal_h.to(self._device), universal_eps.to(self._device)
+
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
-                ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, universal_emb=False):
-        """Compute the weights of a target network when we apply nesting.
-
-        Parameters:
-        -----------
-            return_extended_output: bool
-                If true, then the function returns lower, middle, upper target weights and
-                calculated radii of intervals after passing via the hypernetwork. Otherwise,
-                returns only the middle target weights.
-
-            perturbated_eps: float
-                Perturbation value which will be multiplied by perturbation vector.
-
-            The rest of arguments is described in
-                https://hypnettorch.readthedocs.io/en/latest/_modules/hypnettorch/hnets/hnet_interface.html#HyperNetInterface
-
-        Returns:
-        --------
-            A tuple of torch.Tensor
-                If return_extended_output is set to True, then lower, middle, upper target weights and
-                    calculated radii of intervals after passing via the hypernetwork are returned.
-            torch.Tensor
-                If return_extended_output is set to False, then only middle target weights are
-                returned.
-        """
+                ret_format='squeezed', return_extended_output=False,
+                perturbated_eps=None):
+        """Compute the weights of a target network when we apply nesting."""
 
         uncond_input, cond_input, uncond_weights, _ = \
             self._preprocess_forward_args(uncond_input=uncond_input,
@@ -104,35 +131,55 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 distilled_params=distilled_params, condition=condition,
                 ret_format=ret_format)
 
-        ### Prepare hypernet input ###
-        assert self._uncond_in_size == 0 or uncond_input is not None
-        assert self._cond_in_size == 0 or cond_input is not None
-        if uncond_input is not None:
-            assert len(uncond_input.shape) == 2 and \
-                   uncond_input.shape[1] == self._uncond_in_size
-            h = uncond_input
-        if cond_input is not None:
-            assert len(cond_input.shape) == 2 and \
-                   cond_input.shape[1] == self._cond_in_size
-            h = cond_input
-        if uncond_input is not None and cond_input is not None:
-            h = torch.cat([uncond_input, cond_input], dim=1)
-            
-        # cond_id may be a list while a regularization process
-        if not isinstance(cond_id, list) and cond_id is not None:
-            eps = perturbated_eps * F.softmax(
-                    self._perturbated_eps_T[cond_id],
-                    dim=-1)
-            
-        elif isinstance(cond_id, list) and cond_id is not None:
-            eps = torch.stack([
-                perturbated_eps * F.softmax(self._perturbated_eps_T[i], dim=-1) for i in range(len(cond_id))
-            ], dim=0)
-
+        # ---------------------------------------------------------------------
+        # UNIVERSAL EMBEDDING INTERSECTION 
+        # (Cosine transform is handled inside get_universal_intersection)
+        # ---------------------------------------------------------------------
+        if cond_id is not None:
+            if not isinstance(cond_id, list):
+                # Single cond_id
+                h, eps = self.get_universal_intersection(cond_id, perturbated_eps)
+                
+                # Expand to batch size if necessary
+                batch_size = 1
+                if cond_input is not None:
+                    batch_size = cond_input.shape[0]
+                elif uncond_input is not None:
+                    batch_size = uncond_input.shape[0]
+                    
+                if len(h.shape) == 1 or h.shape[0] != batch_size:
+                    h = h.expand(batch_size, -1)
+                    eps = eps.expand(batch_size, -1)
+            else:
+                # List of cond_ids
+                h_list, eps_list = [], []
+                for cid in cond_id:
+                    h_c, eps_c = self.get_universal_intersection(cid, perturbated_eps)
+                    h_list.append(h_c)
+                    eps_list.append(eps_c)
+                
+                h = torch.stack(h_list, dim=0)
+                eps = torch.stack(eps_list, dim=0)
         else:
+            ### Fallback if cond_id is missing ###
+            assert self._uncond_in_size == 0 or uncond_input is not None
+            assert self._cond_in_size == 0 or cond_input is not None
+            
+            if uncond_input is not None:
+                assert len(uncond_input.shape) == 2 and uncond_input.shape[1] == self._uncond_in_size
+                h = uncond_input
+            if cond_input is not None:
+                assert len(cond_input.shape) == 2 and cond_input.shape[1] == self._cond_in_size
+                h = cond_input
+            if uncond_input is not None and cond_input is not None:
+                h = torch.cat([uncond_input, cond_input], dim=1)
+            
+            # Apply cosine transform manually for fallback cases
+            sigma = 0.5 * perturbated_eps / self._cond_in_size
+            h = sigma * torch.cos(h)
+                
             eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
-        
-        eps = eps.to(self._device)
+            eps = eps.to(self._device)
 
         ### Extract layer weights ###
         bn_scales  = []
@@ -160,11 +207,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         if self._use_batch_norm:
             assert len(bn_scales) == len(fc_weights) - 1
-    
-        
-        # Apply cos transformation
-        sigma = 0.5 * perturbated_eps / self._cond_in_size
-        h = h if universal_emb else sigma * torch.cos(h)
+
+        # We proceed directly to IBP propagation. h and eps are already set up correctly.
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
@@ -176,11 +220,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
             if not last_layer:
 
-                # Batch-norm
                 if self._use_batch_norm:
                    raise Exception("BatchNorm not implemented for hypernets!")
 
-                # Non-linearity
                 if self._act_fn is not None:
                     z_l, z_u = h - eps, h + eps
                     z_l, z_u = self._act_fn(z_l), self._act_fn(z_u)
@@ -199,5 +241,3 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             return ret_zl, ret, ret_zu, radii
         else:
             return ret
-        
-       
