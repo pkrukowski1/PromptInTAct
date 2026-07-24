@@ -1,14 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=CODA-P_imnet-r_metrics
+#SBATCH --job-name=CODA-P_dil_imnet-r_metrics
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
 source activate prompt_intact
 
-DATASET=ImageNet_R
-OUTDIR=./${DATASET}/5-task-metrics
-CONFIG=configs/imnet-r_prompt_5_tasks.yaml
+DATASET=DIL_ImageNet_R
+OUTDIR=./${DATASET}/15-task-metrics
+CONFIG=configs/dil_imnet-r_prompt_15_tasks.yaml
 REPEAT=1
 OVERWRITE=0
 
