@@ -17,13 +17,17 @@ N_CLASS=200
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=./${DATASET}/15-task
+# OUTDIR=./${DATASET}/15-task
+OUTDIR=/shared/results/common/helm/IntervalActivationPromptCL/${DATASET}/Q6/15-task
+
 
 # hard coded inputs
 GPUID='0'
 CONFIG=configs/dil_imnet-r_prompt_15_tasks.yaml
-REPEAT=1
+REPEAT=2
 OVERWRITE=0
+DATA_ROOT="/shared/sets/datasets/imagenet-r_InTAct"
+
 
 ###############################################################
 
@@ -37,7 +41,7 @@ mkdir -p $OUTDIR
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
 VAR_LOSS_SCALES=("0.1")
-INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.0001" "0.001" "0.01" "0.1")
+INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.001")
 FEATURE_LOSS_SCALES=("0.1")
 
 for var in "${VAR_LOSS_SCALES[@]}"; do
@@ -53,7 +57,8 @@ for var in "${VAR_LOSS_SCALES[@]}"; do
           --var_loss_scale $var \
           --internal_repr_drift_loss_scale $out \
           --feature_loss_scale $drift \
-          --use_align_loss
+          --use_align_loss \
+          --data_root_dir $DATA_ROOT
     done
   done
 done
