@@ -27,7 +27,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                  layers=(100, 100), verbose=True, activation_fn=torch.nn.ReLU(),
                  use_bias=True, no_uncond_weights=False, no_cond_weights=False,
                  num_cond_embs=1, dropout_rate=-1, use_spectral_norm=False,
-                 use_batch_norm=False, *args, **kwargs):
+                 use_batch_norm=False, target_perturbated_eps=0.0, total_iterations=1000, *args, **kwargs):
 
         HMLP.__init__(self, target_shapes, uncond_in_size=uncond_in_size, cond_in_size=cond_in_size,
                  layers=layers, verbose=verbose, activation_fn=activation_fn,
@@ -39,7 +39,12 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._prev_hnet_weights = None
         
-        ### Create fixed perturbation vectors
+        ### Epsilon Scheduling Parameters ###
+        self.target_perturbated_eps = target_perturbated_eps
+        self.iterations_to_adjust = int(total_iterations // 2)
+        self.current_iteration = 0
+        
+        ### Create fixed perturbation vectors ###
         self._perturbated_eps_T = []
 
         for _ in range(num_cond_embs):
@@ -62,31 +67,45 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         """
         self.conditional_params[idx].requires_grad_(False)
 
-    def get_task_bounds(self, idx, perturbated_eps):
+    def set_iteration(self, iteration):
+        """
+        Updates the internal iteration counter for epsilon scheduling.
+        Call this from the training loop before the forward pass.
+        """
+        self.current_iteration = iteration
+
+    def get_current_perturbated_eps(self):
+        """
+        Calculates the scheduled perturbated epsilon based on the current iteration.
+        """
+        if self.current_iteration < self.iterations_to_adjust:
+            # Prevent division by zero if iterations_to_adjust is 1
+            denom = max(1, self.iterations_to_adjust - 1)
+            return (self.current_iteration / denom) * self.target_perturbated_eps
+        else:
+            return self.target_perturbated_eps
+
+    def get_task_bounds(self, idx, current_eps):
         """
         Helper method to compute the lower and upper bounds for a specific task embedding,
         enforcing the cosine transformation to guarantee overlapping support.
         """
-        # Fetch raw embedding
         h_raw = self.conditional_params[idx]
         
-        # Apply cosine transformation to bound the center
-        sigma = 0.5 * perturbated_eps / self._cond_in_size
+        sigma = 0.5 * current_eps / self._cond_in_size
         h_cos = sigma * torch.cos(h_raw)
         
-        # Calculate radius via softmax
-        eps = perturbated_eps * F.softmax(self._perturbated_eps_T[idx], dim=-1)
+        eps = current_eps * F.softmax(self._perturbated_eps_T[idx], dim=-1)
         
         return h_cos - eps, h_cos + eps
 
-    def get_universal_intersection(self, cond_id, perturbated_eps):
+    def get_universal_intersection(self, cond_id, current_eps):
         """
         Computes the geometric intersection between the cumulative hypercube of all prior 
         tasks (0 to cond_id - 1) and the current task embedding (cond_id).
         """
-        # If no prior tasks exist, just return the current task's transformed bounds
         if cond_id == 0:
-            lower, upper = self.get_task_bounds(0, perturbated_eps)
+            lower, upper = self.get_task_bounds(0, current_eps)
             h = (upper + lower) / 2.0
             eps = (upper - lower) / 2.0
             return h.to(self._device), eps.to(self._device)
@@ -94,35 +113,29 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         prior_lowers = []
         prior_uppers = []
         
-        # 1. Compute bounding boxes for all prior tasks (with cosine transformation applied)
         for i in range(cond_id):
-            l, u = self.get_task_bounds(i, perturbated_eps)
+            l, u = self.get_task_bounds(i, current_eps)
             prior_lowers.append(l)
             prior_uppers.append(u)
             
         prior_lower_bound = torch.stack(prior_lowers).min(dim=0)[0]
         prior_upper_bound = torch.stack(prior_uppers).max(dim=0)[0]
         
-        # 2. Compute bounds for the current task
-        curr_lower_bound, curr_upper_bound = self.get_task_bounds(cond_id, perturbated_eps)
+        curr_lower_bound, curr_upper_bound = self.get_task_bounds(cond_id, current_eps)
         
-        # 3. Compute the intersection (max of lowers, min of uppers)
         intersect_lower = torch.max(prior_lower_bound, curr_lower_bound)
         intersect_upper = torch.min(prior_upper_bound, curr_upper_bound)
         
-        # 4. Convert intersection bounds back to center (h) and radius (eps)
         universal_h = (intersect_upper + intersect_lower) / 2.0
         universal_eps = (intersect_upper - intersect_lower) / 2.0
         
-        # Safety ReLU in case the intersection is somehow perfectly empty (negative radius)
         universal_eps = F.relu(universal_eps) 
         
         return universal_h.to(self._device), universal_eps.to(self._device)
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
-                ret_format='squeezed', return_extended_output=False,
-                perturbated_eps=None):
+                ret_format='squeezed', return_extended_output=False):
         """Compute the weights of a target network when we apply nesting."""
 
         uncond_input, cond_input, uncond_weights, _ = \
@@ -131,16 +144,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 distilled_params=distilled_params, condition=condition,
                 ret_format=ret_format)
 
+        # Retrieve the dynamically scheduled epsilon
+        current_eps = self.get_current_perturbated_eps()
+
         # ---------------------------------------------------------------------
         # UNIVERSAL EMBEDDING INTERSECTION 
-        # (Cosine transform is handled inside get_universal_intersection)
         # ---------------------------------------------------------------------
         if cond_id is not None:
             if not isinstance(cond_id, list):
-                # Single cond_id
-                h, eps = self.get_universal_intersection(cond_id, perturbated_eps)
+                h, eps = self.get_universal_intersection(cond_id, current_eps)
                 
-                # Expand to batch size if necessary
                 batch_size = 1
                 if cond_input is not None:
                     batch_size = cond_input.shape[0]
@@ -151,10 +164,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                     h = h.expand(batch_size, -1)
                     eps = eps.expand(batch_size, -1)
             else:
-                # List of cond_ids
                 h_list, eps_list = [], []
                 for cid in cond_id:
-                    h_c, eps_c = self.get_universal_intersection(cid, perturbated_eps)
+                    h_c, eps_c = self.get_universal_intersection(cid, current_eps)
                     h_list.append(h_c)
                     eps_list.append(eps_c)
                 
@@ -174,11 +186,10 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             if uncond_input is not None and cond_input is not None:
                 h = torch.cat([uncond_input, cond_input], dim=1)
             
-            # Apply cosine transform manually for fallback cases
-            sigma = 0.5 * perturbated_eps / self._cond_in_size
+            sigma = 0.5 * current_eps / self._cond_in_size
             h = sigma * torch.cos(h)
                 
-            eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+            eps = current_eps * F.softmax(torch.ones_like(h), dim=-1)
             eps = eps.to(self._device)
 
         ### Extract layer weights ###
@@ -207,8 +218,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         if self._use_batch_norm:
             assert len(bn_scales) == len(fc_weights) - 1
-
-        # We proceed directly to IBP propagation. h and eps are already set up correctly.
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
