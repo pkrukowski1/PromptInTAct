@@ -3,7 +3,6 @@ import torch.nn as nn
 from .vit import VisionTransformer
 import copy
 from .layers.interval_activation import IntervalActivation
-from .hint.interval_modules import parse_logits
 
 # Our method!
 class CodaPrompt(nn.Module):
@@ -412,17 +411,13 @@ class ViTZoo(nn.Module):
             else:
                 lower_weights, target_weights, upper_weights, _ = self.hnet.forward(cond_id=self.task_id, 
                                                                                     return_extended_output=True)
-                predictions = self.classifier.forward(x=out,
+                out = self.classifier.forward(x=out,
                                                 upper_weights=upper_weights,
                                                 middle_weights=target_weights,
                                                 lower_weights=lower_weights)
-            
-                lower_pred, out, upper_pred = parse_logits(predictions)
-            
-        if not self.use_hint and self.prompt is not None and train:
+                        
+        if self.prompt is not None and train:
             return out, prompt_loss
-        elif self.use_hint and self.prompt is not None and train:
-            return out, prompt_loss, lower_pred, upper_pred
         else:
             return out
             

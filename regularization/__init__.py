@@ -1,1 +1,2 @@
 from . import interval_regularization
+from .hint_regularization import IntervalHypernetRegularizer

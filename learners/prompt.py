@@ -15,6 +15,7 @@ import copy
 import torchvision
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
+from models.hint.interval_modules import parse_logits
 
 class Prompt(NormalNN):
 
@@ -22,30 +23,104 @@ class Prompt(NormalNN):
         self.prompt_param = learner_config['prompt_param']
         super(Prompt, self).__init__(learner_config)
 
-    def update_model(self, inputs, targets, interval_penalization=None):
+    def update_model(self, inputs, targets, interval_penalization=None, hnet_reg=None):
 
-        # logits
-        logits, prompt_loss = self.model(inputs, train=True)
-        logits = logits[:,:self.valid_out_dim]
+        if hnet_reg is not None:
+            hnet_target = self.model.module.hnet if hasattr(self.model, 'module') else getattr(self.model, 'hnet', None)
+            
+            if not hasattr(self, 'current_iter'):
+                self.current_iter = 0
+                
+            if hnet_target is not None:
+                hnet_target.set_iteration(self.current_iter)
 
-        # ce with heuristic
+        out, prompt_loss = self.model(inputs, train=True)
+        
+        if isinstance(out, tuple) and len(out) == 3:
+            lower_logits, middle_logits, upper_logits = parse_logits(out)
+        else:
+            middle_logits = out
+            lower_logits = upper_logits = None
+
+        # Masking for Valid Out Dim
+        middle_logits = middle_logits[:,:self.valid_out_dim]
+        if lower_logits is not None:
+            lower_logits = lower_logits[:,:self.valid_out_dim]
+            upper_logits = upper_logits[:,:self.valid_out_dim]
+
+        # CE with heuristic (Apply to all bounds if they exist)
         if not self.dil:
-            logits[:,:self.last_valid_out_dim] = -float('inf')
+            middle_logits[:,:self.last_valid_out_dim] = -float('inf')
+            if lower_logits is not None:
+                lower_logits[:,:self.last_valid_out_dim] = -float('inf')
+                upper_logits[:,:self.last_valid_out_dim] = -float('inf')
+                
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        total_loss = self.criterion(logits, targets.long(), dw_cls)
+        
+        # 3. Calculate Worst-Case IBP Loss & Kappa Schedule
+        loss_fit = self.criterion(middle_logits, targets.long(), dw_cls)
 
+        if lower_logits is not None and upper_logits is not None:
+            # Kappa Scheduling
+            iterations_to_adjust = self.iterations_to_adjust
+            target_kappa = 0.5
+            
+            if hasattr(self, 'current_iter') and self.current_iter < iterations_to_adjust:
+                kappa = max(1.0 - 0.00005 * self.current_iter, target_kappa)
+            else:
+                kappa = target_kappa
+                
+            # Worst-case loss component
+            tmp = F.one_hot(targets.long(), middle_logits.size(-1))
+            z = torch.where(tmp.bool(), lower_logits, upper_logits)
+            
+            loss_spec = self.criterion(z, targets.long(), dw_cls)
+            
+            # Combine Standard + Worst-Case Loss
+            total_loss = kappa * loss_fit + (1 - kappa) * loss_spec
+            
+            # Store worst case error for metrics/logging if needed later
+            self.worst_case_error = (z.argmax(dim=1) != targets).float().sum().item()
+        else:
+            total_loss = loss_fit
+
+        # 4. Interval Penalization
         if interval_penalization is not None:
             total_loss += interval_penalization.forward(inputs, total_loss)
 
-        # ce loss
+        # 5. Hypernetwork Regularization Loss (HINT)
+        if hnet_reg is not None:
+            task_id = self.model.module.task_id if hasattr(self.model, 'module') else getattr(self.model, 'task_id', 0)
+            
+            if task_id > 0:
+                reg_loss = hnet_reg.calc_fix_target_reg(
+                    task_id=task_id,
+                    lower_targets=self.hnet_lower_targets,
+                    middle_targets=self.hnet_middle_targets,
+                    upper_targets=self.hnet_upper_targets
+                )
+                
+                beta = self.config.get('beta', 1.0) 
+                total_loss += (beta * reg_loss) / task_id
+
+        # 6. Prompt Regularization Loss
         total_loss = total_loss + prompt_loss.sum()
 
         # step
         self.optimizer.zero_grad()
-        total_loss.backward(retain_graph=True if interval_penalization is not None else False)
+        
+        # Retain graph if either penalization or regularization requires it
+        retain = (interval_penalization is not None) or (hnet_reg is not None)
+        total_loss.backward(retain_graph=retain)
         self.optimizer.step()
+        
+        # Increment iteration for epsilon and kappa scheduling
+        if not hasattr(self, 'current_iter'):
+            self.current_iter = 0
+        self.current_iter += 1
 
-        return total_loss.detach(), logits
+        # Return middle logits for accuracy calculations
+        return total_loss.detach(), middle_logits
 
     # sets model optimizers
     def init_optimizer(self):
@@ -108,7 +183,8 @@ class CODAPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'coda',prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_interval_activation=cfg['use_interval_activation'],
+                                                                               use_hint=cfg['use_hint'])
         return model
 
 # @article{wang2022dualprompt,
@@ -125,7 +201,8 @@ class DualPrompt(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_interval_activation=cfg['use_interval_activation'],
+                                                                               use_hint=cfg['use_hint'])
         return model
 
 # @inproceedings{wang2022learning,
@@ -143,5 +220,6 @@ class L2P(Prompt):
     def create_model(self):
         cfg = self.config
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,
-                                                                               use_interval_activation=cfg['use_interval_activation'])
+                                                                               use_interval_activation=cfg['use_interval_activation'],
+                                                                               use_hint=cfg['use_hint'])
         return model

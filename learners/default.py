@@ -30,6 +30,7 @@ class NormalNN(nn.Module):
         self.tasks = learner_config['tasks']
         self.top_k = learner_config['top_k']
         self.use_interval_activation = learner_config['use_interval_activation']
+        self.use_hint = learner_config['use_hint']
         self.dil = learner_config['dil']
 
         # replay memory parameters
@@ -68,7 +69,7 @@ class NormalNN(nn.Module):
     #           MODEL TRAINING               #
     ##########################################
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, interval_penalization=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, interval_penalization=None, hnet_reg=None):
         
         # try to load model
         need_train = True
@@ -84,6 +85,24 @@ class NormalNN(nn.Module):
             self.log('Optimizer is reset!')
             self.init_optimizer()
         if need_train:
+            self.current_iter = 0
+            
+            total_iterations = len(train_loader) * self.config['schedule'][-1]
+            self.iterations_to_adjust = int(total_iterations // 2)
+            
+            task_id = self.model.module.task_id if hasattr(self.model, 'module') else getattr(self.model, 'task_id', 0)
+
+            if hnet_reg is not None and task_id > 0:
+                self.log(f"Recording static hypernetwork targets for task {task_id}...")
+                
+                hnet_target = self.model.module.hnet if hasattr(self.model, 'module') else self.model.hnet                
+                hnet_target._prev_hnet_weights = copy.deepcopy(hnet_target.unconditional_params)
+                
+                lower, middle, upper = hnet_reg.get_current_targets(task_id)
+                
+                self.hnet_lower_targets = lower
+                self.hnet_middle_targets = middle
+                self.hnet_upper_targets = upper
             
             # data weighting
             self.data_weighting(train_dataset)
@@ -109,7 +128,7 @@ class NormalNN(nn.Module):
                         y = y.cuda()
                     
                     # model update
-                    loss, output= self.update_model(x, y, interval_penalization=interval_penalization)
+                    loss, output= self.update_model(x, y, interval_penalization=interval_penalization, hnet_reg=hnet_reg)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
@@ -148,7 +167,7 @@ class NormalNN(nn.Module):
         loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
         return loss_supervised 
 
-    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None, interval_penalization=None):
+    def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None, interval_penalization=None, hnet_reg=None):
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self.forward(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)

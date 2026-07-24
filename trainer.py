@@ -4,13 +4,16 @@ import argparse
 import torch
 import numpy as np
 import random
+import learners
+import dataloaders
+
 from random import shuffle
 from collections import OrderedDict
-import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
-import learners
 from regularization.interval_regularization import IntervalPenalization
+from regularization.hint_regularization import IntervalHypernetRegularizer
+from .models.hint import HMLP_IBP, IntervalMLP
 
 class Trainer:
 
@@ -22,6 +25,7 @@ class Trainer:
         self.save_keys = save_keys
         self.log_dir = args.log_dir
         self.batch_size = args.batch_size
+        self.epochs = args.schedule[-1]
         self.workers = args.workers
         
         # model load directory
@@ -154,10 +158,40 @@ class Trainer:
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param],
                         'use_interval_activation': args.use_interval_activation,
+                        'use_hint': args.use_hint,
                         'dil': self.dil
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+
+        if args.use_hint:
+            # NOTE HINT works currently only for DIL scenario
+            classifier = IntervalMLP(n_in=768,
+                                n_out=num_classes,
+                                hidden_layers=[],
+                                use_bias=True,
+                                no_weights=True,
+                                use_batch_norm=False,
+                                bn_track_stats=False,
+                                dropout_rate=None)
+            
+            hnet = HMLP_IBP(
+                perturbated_eps=args.perturbated_epsilon,
+                target_shapes=classifier.param_shapes,
+                uncond_in_size=0,
+                cond_in_size=args.hnet_embedding_size,
+                activation_fn=torch.nn.ReLU(),
+                layers=args.hnet_param,
+                num_cond_embs=self.num_tasks)
+
+            self.learner.model.module.hnet = hnet
+            if hasattr(self.learner.model, 'module'):
+                self.learner.model.module.classifier = classifier
+            else:
+                self.learner.model.classifier = classifier
+
+            self.hnet_reg = IntervalHypernetRegularizer(hnet=hnet, mnet=classifier)
+            
 
         if args.use_interval_activation:
             self.interval_penalization = IntervalPenalization(
@@ -189,6 +223,7 @@ class Trainer:
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
         interval_penalization = None
+        hnet_reg = None
         # for each task
         for i in range(self.max_task):
             
@@ -203,6 +238,9 @@ class Trainer:
                 )
 
                 interval_penalization = self.interval_penalization
+
+            elif self.learner_config['use_hint']:
+                hnet_reg = self.hnet_reg
            
             # save current task index
             self.current_t_index = i
@@ -237,6 +275,17 @@ class Trainer:
             # load dataloader
             train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
 
+            if self.learner_config['use_hint']:
+                if hasattr(self.learner.model, 'module'):
+                    hnet_target = self.learner.model.module.hnet
+                else:
+                    hnet_target = self.learner.model.hnet
+                    
+                total_iterations = self.batch_size * self.epochs 
+                
+                hnet_target.set_total_iterations(total_iterations)
+                hnet_target.set_iteration(0)
+
             # increment task id in prompting modules
             if i > 0:
                 try:
@@ -251,7 +300,7 @@ class Trainer:
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization)
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization, hnet_reg)
 
             # save model
             self.learner.save_model(model_save_dir)
