@@ -37,7 +37,8 @@ class IntervalPenalization(nn.Module):
             internal_repr_drift_loss_scale: float = 1.0,
             feature_loss_scale: float = 1.0,
             use_align_loss: bool = True,
-            use_metrics: bool = False
+            use_metrics: bool = False,
+            gradient_tracker=None,
         ) -> None:
         """
         Initializes IntervalPenalization with specified loss scales.
@@ -48,8 +49,9 @@ class IntervalPenalization(nn.Module):
             feature_loss_scale (float, optional): Scale factor for feature drift loss. Defaults to 1.0.
             use_align_loss (bool, optional): Whether to include activation center alignment loss. Defaults to True.
             use_metrics (bool, optional): If True, track occupancy ratio and constraint activation rate. Defaults to False.
+            gradient_tracker: GradientCosineTracker or None.  When set, per-component cosine sims are logged each step.
         """
-        
+
         super().__init__()
         self.task_id = None
 
@@ -58,6 +60,7 @@ class IntervalPenalization(nn.Module):
         self.feature_loss_scale = feature_loss_scale
         self.use_align_loss = use_align_loss
         self.use_metrics = use_metrics
+        self.gradient_tracker = gradient_tracker
 
         self.params_buffer = {}
 
@@ -309,11 +312,26 @@ class IntervalPenalization(nn.Module):
                     center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
 
                     align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
-        loss = (
+        scaled_var = self.var_loss_scale * var_loss
+        scaled_output_reg = self.internal_repr_drift_loss_scale * output_reg_loss
+        scaled_interval_drift = self.feature_loss_scale * interval_drift_loss
+
+        total = (
             loss
-            + self.var_loss_scale * var_loss
-            + self.internal_repr_drift_loss_scale * output_reg_loss
-            + self.feature_loss_scale * interval_drift_loss
+            + scaled_var
+            + scaled_output_reg
+            + scaled_interval_drift
             + align_repr_loss
         )
-        return loss
+
+        if self.gradient_tracker is not None:
+            loss_dict: dict[str, torch.Tensor] = {
+                "ce": loss,
+                "var": scaled_var,
+                "output_reg": scaled_output_reg,
+                "interval_drift": scaled_interval_drift,
+                "align": align_repr_loss,
+            }
+            self.gradient_tracker.record(loss_dict)
+
+        return total

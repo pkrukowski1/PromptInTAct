@@ -17,6 +17,7 @@ class Trainer:
     def __init__(self, args, seed, metric_keys, save_keys):
 
         # process inputs
+        self.args = args
         self.seed = seed
         self.metric_keys = metric_keys
         self.save_keys = save_keys
@@ -193,6 +194,7 @@ class Trainer:
         # for each task
         for i in range(self.max_task):
             
+            gradient_tracker = None
             if self.learner_config['use_interval_activation']:
                 self.interval_penalization.setup_task(
                     task_id=i,
@@ -204,7 +206,14 @@ class Trainer:
                 )
 
                 interval_penalization = self.interval_penalization
-           
+
+                if getattr(self.args, 'gradient_analysis', False):
+                    from utils.gradient_cosine import GradientCosineTracker
+                    csv_path = os.path.join(self.log_dir, f"grad_cosine_task{i}.csv")
+                    gradient_tracker = GradientCosineTracker(
+                        self.learner.optimizer, csv_path
+                    )
+            
             # save current task index
             self.current_t_index = i
 
@@ -252,7 +261,7 @@ class Trainer:
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization)
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader, interval_penalization=interval_penalization, gradient_tracker=gradient_tracker)
 
             # save model
             self.learner.save_model(model_save_dir)

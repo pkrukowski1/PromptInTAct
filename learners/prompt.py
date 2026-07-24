@@ -22,7 +22,7 @@ class Prompt(NormalNN):
         self.prompt_param = learner_config['prompt_param']
         super(Prompt, self).__init__(learner_config)
 
-    def update_model(self, inputs, targets, interval_penalization=None):
+    def update_model(self, inputs, targets, interval_penalization=None, gradient_tracker=None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
@@ -35,6 +35,7 @@ class Prompt(NormalNN):
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
         if interval_penalization is not None:
+            interval_penalization.gradient_tracker = gradient_tracker
             total_loss += interval_penalization.forward(inputs, total_loss)
 
         # ce loss
