@@ -24,6 +24,6 @@ python -u run.py --config $CONFIG --gpuid 0 --repeat $REPEAT --overwrite $OVERWR
     --use_align_loss \
     --use_intact_metrics \
     --log_dir $LOGDIR \
-    --var_loss_scale 1.0 \
+    --var_loss_scale 0.1 \
     --internal_repr_drift_loss_scale 0.001 \
     --feature_loss_scale 0.1

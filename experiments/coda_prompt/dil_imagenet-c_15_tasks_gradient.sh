@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=CODA-P_dil_imagenet-c_15_grad
-#SBATCH --qos=big
+#SBATCH --qos=normal
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --partition=dgx
+#SBATCH --mem=80G
+#SBATCH --partition=dgxh100
 
 source activate prompt_intact
 
@@ -28,25 +28,21 @@ mkdir -p $OUTDIR
 
 CODA_P_POOL_SIZES=(196)
 CODA_P_LENGTHS=(8)
-VAR_LOSS_SCALE=0.01
-INTERNAL_REP_DRIFT_SCALE=1.0
-FEATURE_LOSS_SCALE=1.0
+VAR_LOSS_SCALE=0.1
+INTERNAL_REP_DRIFT_SCALE=0.0001
+FEATURE_LOSS_SCALE=0.1
 
-for pool in "${CODA_P_POOL_SIZES[@]}"; do
-  for length in "${CODA_P_LENGTHS[@]}"; do
-    LOGDIR=${OUTDIR}/coda-p/pool${pool}_len${length}_var${VAR_LOSS_SCALE}_out${INTERNAL_REP_DRIFT_SCALE}_drift${FEATURE_LOSS_SCALE}
-    mkdir -p $LOGDIR
+LOGDIR=${OUTDIR}/coda-p/pool${pool}_len${length}_var${VAR_LOSS_SCALE}_out${INTERNAL_REP_DRIFT_SCALE}_drift${FEATURE_LOSS_SCALE}
+mkdir -p $LOGDIR
 
-    python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
-      --learner_type prompt --learner_name CODAPrompt \
-      --prompt_param $pool $length 1 \
-      --use_interval_activation \
-      --log_dir $LOGDIR \
-      --var_loss_scale $VAR_LOSS_SCALE \
-      --internal_repr_drift_loss_scale $INTERNAL_REP_DRIFT_SCALE \
-      --feature_loss_scale $FEATURE_LOSS_SCALE \
-      --use_align_loss \
-      --domain_num 15 \
-      --gradient_analysis
-  done
-done
+python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
+  --learner_type prompt --learner_name CODAPrompt \
+  --prompt_param $pool $length 1 \
+  --use_interval_activation \
+  --log_dir $LOGDIR \
+  --var_loss_scale $VAR_LOSS_SCALE \
+  --internal_repr_drift_loss_scale $INTERNAL_REP_DRIFT_SCALE \
+  --feature_loss_scale $FEATURE_LOSS_SCALE \
+  --use_align_loss \
+  --domain_num 15 \
+  --gradient_analysis
