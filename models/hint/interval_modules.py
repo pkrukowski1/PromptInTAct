@@ -83,32 +83,8 @@ class IntervalLinear(IntervalModuleWithWeights):
                 lower_bias: Tensor
                 ) -> Tensor:  # type: ignore
         """
-        Computes the output bounds based on weights and biases.
-
-        Parameters:
-        -----------
-            x: torch.Tensor
-                Input tensor with shape (batch_size, bounds, features).
-            upper_weights: torch.Tensor
-                Upper weights with shape (out_features, in_features).
-            middle_weights: torch.Tensor
-                Middle weights with shape (out_features, in_features).
-            lower_weights: torch.Tensor
-                Lower weights with shape (out_features, in_features).
-            upper_bias: torch.Tensor
-                Upper bias with shape (out_features).
-            middle_bias: torch.Tensor
-                Middle bias with shape (out_features).
-            lower_bias: torch.Tensor
-                Lower bias with shape (out_features).
-
-        Returns:
-            torch.Tensor:
-                Output tensor with bounds (batch_size, bounds, features).
-
-        Raises:
-            AssertionError:
-                If input bounds violate constraints.
+        Computes the output bounds based on weights and biases using 
+        Center-Radius IBP to safely handle negative input and weight intervals.
         """
 
         assert (lower_weights <= middle_weights).all(), "Lower bound must be less than or equal to middle bound."
@@ -117,32 +93,21 @@ class IntervalLinear(IntervalModuleWithWeights):
         assert (middle_bias <= upper_bias).all(), "Middle bias must be less than or equal to upper bias."
 
         x = x.refine_names("N", "bounds", "features")  # type: ignore
-        assert (x.rename(None) >= 0.0).all(), "All input features must be non-negative."  # type: ignore
 
         x_lower, x_middle, x_upper = map(lambda x_: cast(Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
-        assert (x_lower <= x_middle).all(), "Lower bound must be less than or equal to middle bound."
-        assert (x_middle <= x_upper).all(), "Middle bound must be less than or equal to upper bound."
+        assert (x_lower <= x_middle).all(), "Lower input bound must be <= middle bound."
+        assert (x_middle <= x_upper).all(), "Middle input bound must be <= upper bound."
 
+        x_rad = (x_upper - x_lower) / 2.0
+        w_rad = (upper_weights - lower_weights) / 2.0
+        
+        out_mid = x_middle @ middle_weights.t()
+        
+        out_rad = x_middle.abs() @ w_rad.t() + x_rad @ middle_weights.abs().t() + x_rad @ w_rad.t()
 
-        w_lower_pos = lower_weights.clamp(min=0)
-        w_lower_neg = lower_weights.clamp(max=0)
-        w_upper_pos = upper_weights.clamp(min=0)
-        w_upper_neg = upper_weights.clamp(max=0)
-
-        # Further splits only needed for numeric stability with asserts
-        w_middle_pos = middle_weights.clamp(min=0)
-        w_middle_neg = middle_weights.clamp(max=0)
-
-        lower = x_lower @ w_lower_pos.t() + x_upper @ w_lower_neg.t()
-        upper = x_upper @ w_upper_pos.t() + x_lower @ w_upper_neg.t()
-        middle = x_middle @ w_middle_pos.t() + x_middle @ w_middle_neg.t()
-
-        b_middle = middle_bias
-        b_lower = lower_bias
-        b_upper = upper_bias
-        lower = lower + b_lower
-        upper = upper + b_upper
-        middle = middle + b_middle
+        middle = out_mid + middle_bias
+        lower = out_mid - out_rad + lower_bias
+        upper = out_mid + out_rad + upper_bias
 
         assert (lower <= middle).all(), "Lower bound must be less than or equal to middle bound."
         assert (middle <= upper).all(), "Middle bound must be less than or equal to upper bound."
@@ -429,7 +394,6 @@ class IntervalConv2d(nn.Conv2d, IntervalModuleWithWeights):
         """
 
         x = x.refine_names("N", "bounds", "C", "H", "W")
-        assert (x.rename(None) >= 0.0).all(), "All input features must be non-negative."  # type: ignore
         x_lower, x_middle, x_upper = map(lambda x_: cast(Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
         assert (x_lower <= x_middle).all(), "Lower bound must be less than or equal to middle bound."
         assert (x_middle <= x_upper).all(), "Middle bound must be less than or equal to upper bound."

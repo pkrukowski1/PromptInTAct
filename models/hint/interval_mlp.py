@@ -380,7 +380,6 @@ class IntervalMLP(MLP, MainNetInterface):
         ###########################
         ### Forward Computation ###
         ###########################
-        x = torch.relu(x) # We have to have non-negative features
         hidden = torch.stack([x, x, x], dim=1)
 
         for l in range(len(w_middle_weights)):
