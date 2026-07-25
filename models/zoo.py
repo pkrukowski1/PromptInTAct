@@ -348,7 +348,7 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
 class ViTZoo(nn.Module):
     def __init__(self, num_classes=10, pt=False, prompt_flag=False, prompt_param=None,
-                 use_interval_activation=False, use_hint=False, *hint_args):
+                 use_interval_activation=False, use_hint=False):
         super(ViTZoo, self).__init__()
   
         if use_interval_activation:
@@ -409,12 +409,13 @@ class ViTZoo(nn.Module):
             if not self.use_hint:
                 out = self.classifier(out)
             else:
-                lower_weights, target_weights, upper_weights, _ = self.hnet.forward(cond_id=self.task_id, 
-                                                                                    return_extended_output=True)
-                out = self.classifier.forward(x=out,
-                                                upper_weights=upper_weights,
-                                                middle_weights=target_weights,
-                                                lower_weights=lower_weights)
+                lower_weights, target_weights, upper_weights, _ = self.hnet.forward(cond_id=self.task_id, return_extended_output=True)
+                out = self.classifier.forward(
+                        x=out,
+                        upper_weights=upper_weights,
+                        middle_weights=target_weights,
+                        lower_weights=lower_weights
+                    )
                         
         if self.prompt is not None and train:
             return out, prompt_loss
