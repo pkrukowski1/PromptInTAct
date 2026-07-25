@@ -37,12 +37,11 @@ mkdir -p $LOGDIR
 
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
   --learner_type prompt --learner_name CODAPrompt \
-  --prompt_param $pool $length 1 \
+  --prompt_param 100 8 0.0 \
   --use_interval_activation \
   --log_dir $LOGDIR \
   --var_loss_scale $VAR_LOSS_SCALE \
   --internal_repr_drift_loss_scale $INTERNAL_REP_DRIFT_SCALE \
   --feature_loss_scale $FEATURE_LOSS_SCALE \
   --use_align_loss \
-  --domain_num 15 \
   --gradient_analysis
