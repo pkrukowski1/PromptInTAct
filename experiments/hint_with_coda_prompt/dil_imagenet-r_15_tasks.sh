@@ -7,7 +7,8 @@
 #SBATCH --partition=dgx
 
 
-source activate prompt_intact
+eval "$(conda shell.bash hook)"
+conda activate prompt_intact
 
 # bash experiments/imagenet-r.sh
 # experiment settings
@@ -45,7 +46,6 @@ for hnet_embedding_size in "${HNET_EMBEDDING_SIZE[@]}"; do
         
         LOGDIR=${OUTDIR}/hint_coda-p/embsize${hnet_embedding_size}_eps${perturbated_epsilon}_reg${hnet_loss_reg}
         mkdir -p $LOGDIR
-        
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
           --learner_type prompt --learner_name CODAPrompt \
           --prompt_param 100 8 0.0 \

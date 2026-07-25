@@ -94,14 +94,17 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def get_task_bounds(self, idx, current_eps):
         """
         Helper method to compute the lower and upper bounds for a specific task embedding,
-        enforcing the cosine transformation to guarantee overlapping support.
+        enforcing the cosine transformation and a strict minimum radius to guarantee overlapping support.
         """
         h_raw = self.conditional_params[idx]
         
         sigma = 0.5 * current_eps / self._cond_in_size
-        h_cos = sigma * torch.cos(h_raw)
+        h_cos = sigma * torch.cos(h_raw).to(self._device)
         
-        eps = current_eps * F.softmax(self._perturbated_eps_T[idx], dim=-1)
+        base_radius = sigma  # Guarantees the intersection
+        flexible_radius = 0.5 * current_eps * F.softmax(self._perturbated_eps_T[idx], dim=-1).to(self._device)
+        
+        eps = base_radius + flexible_radius
         
         return h_cos - eps, h_cos + eps
 
@@ -194,9 +197,11 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             
             sigma = 0.5 * current_eps / self._cond_in_size
             h = sigma * torch.cos(h)
-                
-            eps = current_eps * F.softmax(torch.ones_like(h), dim=-1)
-            eps = eps.to(self._device)
+            
+            base_radius = sigma
+            flexible_radius = 0.5 * current_eps * F.softmax(torch.ones_like(h), dim=-1)
+            
+            eps = (base_radius + flexible_radius).to(self._device)
 
         ### Extract layer weights ###
         bn_scales  = []

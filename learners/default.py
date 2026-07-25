@@ -12,6 +12,7 @@ import contextlib
 import os
 import copy
 from utils.schedulers import CosineSchedule
+from models.hint.interval_modules import parse_logits
 
 class NormalNN(nn.Module):
     '''
@@ -197,6 +198,8 @@ class NormalNN(nn.Module):
                     target = target.cuda()
             if task_in is None:
                 output = model.forward(input)[:, :self.valid_out_dim]
+                if self.use_hint:
+                    _, output, _ = parse_logits(output)
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 mask = target >= task_in[0]
@@ -210,9 +213,13 @@ class NormalNN(nn.Module):
                 if len(target) > 1:
                     if task_global:
                         output = model.forward(input)[:, :self.valid_out_dim]
+                        if self.use_hint:
+                            _, output, _ = parse_logits(output)
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
                         output = model.forward(input)[:, task_in]
+                        if self.use_hint:
+                            _, output, _ = parse_logits(output)
                         acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
             
         model.train(orig_mode)
@@ -298,6 +305,9 @@ class NormalNN(nn.Module):
         self.model.apply(weight_reset)
 
     def forward(self, x):
+        if self.use_hint:
+            _, out, _ = parse_logits(self.model.forward(x)[:, :self.valid_out_dim])
+            return out
         return self.model.forward(x)[:, :self.valid_out_dim]
 
     def predict(self, inputs):

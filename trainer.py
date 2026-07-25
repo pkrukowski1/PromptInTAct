@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader
 from regularization.interval_regularization import IntervalPenalization
 from regularization.hint_regularization import IntervalHypernetRegularizer
 from models.hint.interval_hnet import HMLP_IBP
-from models.hint.interval_mlp import IntervalMLP
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Trainer:
 
@@ -160,37 +161,32 @@ class Trainer:
                         'prompt_param':[self.num_tasks,args.prompt_param],
                         'use_interval_activation': args.use_interval_activation,
                         'use_hint': args.use_hint,
+                        'hnet_loss_reg': args.hnet_loss_reg,
                         'dil': self.dil
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-
+        
         if args.use_hint and self.dil:
             # NOTE HINT works currently only for DIL scenario
-            classifier = IntervalMLP(n_in=768,
-                                n_out=num_classes,
-                                hidden_layers=[],
-                                use_bias=True,
-                                no_weights=True,
-                                use_batch_norm=False,
-                                bn_track_stats=False,
-                                dropout_rate=None)
-            
+            if hasattr(self.learner.model, 'module'):
+                classifier = self.learner.model.module.classifier
+            else:
+                classifier = self.learner.model.classifier
+          
             hnet = HMLP_IBP(
-                perturbated_eps=args.perturbated_epsilon,
+                target_perturbated_eps=args.perturbated_epsilon,
                 target_shapes=classifier.param_shapes,
                 uncond_in_size=0,
                 layers=args.hnet_hidden_neurons,
                 cond_in_size=args.hnet_embedding_size,
                 activation_fn=torch.nn.ReLU(),
-                num_cond_embs=self.num_tasks)
+                num_cond_embs=self.num_tasks).to(DEVICE)
 
-            self.learner.model.module.hnet = hnet
             if hasattr(self.learner.model, 'module'):
-                self.learner.model.module.classifier = classifier
+                self.learner.model.module.hnet = hnet
             else:
-                self.learner.model.classifier = classifier
-
+                self.learner.model.hnet = hnet
             self.hnet_reg = IntervalHypernetRegularizer(hnet=hnet, mnet=classifier)
             
 

@@ -3,6 +3,7 @@ import torch.nn as nn
 from .vit import VisionTransformer
 import copy
 from .layers.interval_activation import IntervalActivation
+from .hint.interval_mlp import IntervalMLP
 
 # Our method!
 class CodaPrompt(nn.Module):
@@ -359,6 +360,14 @@ class ViTZoo(nn.Module):
         elif use_hint:
             # HNET is created in Trainer due to some simplifications
             self.hnet = None
+            self.classifier = IntervalMLP(n_in=768,
+                                    n_out=num_classes,
+                                    hidden_layers=[],
+                                    use_bias=True,
+                                    no_weights=True,
+                                    use_batch_norm=False,
+                                    bn_track_stats=False,
+                                    dropout_rate=0.0)
         else:
              self.classifier = nn.Sequential(
                             nn.Linear(768, num_classes)

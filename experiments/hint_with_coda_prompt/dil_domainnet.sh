@@ -6,9 +6,8 @@
 #SBATCH --mem=64G
 #SBATCH --partition=dgx
 
-
-
-source activate prompt_intact
+eval "$(conda shell.bash hook)"
+conda activate prompt_intact
 
 # bash experiments/domainnet.sh
 # experiment settings

@@ -27,7 +27,9 @@ class Prompt(NormalNN):
 
         out, prompt_loss = self.model(inputs, train=True)
         
-        if isinstance(out, tuple) and len(out) == 3:
+        if hnet_reg is not None:
+            hnet_target = self.model.module.hnet if hasattr(self.model, 'module') else getattr(self.model, 'hnet', None)
+            hnet_target.set_iteration(self.current_iter)
             lower_logits, middle_logits, upper_logits = parse_logits(out)
         else:
             middle_logits = out
@@ -90,7 +92,6 @@ class Prompt(NormalNN):
                     middle_targets=self.hnet_middle_targets,
                     upper_targets=self.hnet_upper_targets
                 )
-                
                 beta = self.config['hnet_loss_reg']
                 total_loss += (beta * reg_loss) / task_id
 
