@@ -37,21 +37,30 @@ class GradientCosineTracker:
             grads = torch.autograd.grad(
                 t, params, only_inputs=True, retain_graph=True, allow_unused=True
             )
-            parts = [g.detach().cpu().flatten() for g in grads if g is not None]
-            grad_buffers[name] = torch.cat(parts, dim=0) if parts else None
+            grad_buffers[name] = [g.detach().cpu() if g is not None else None for g in grads]
 
-        filled = {n: v for n, v in grad_buffers.items() if v is not None}
-        if len(filled) < 2:
+        filled_names = [n for n, v in grad_buffers.items() if v is not None and any(g is not None for g in v)]
+        if len(filled_names) < 2:
             return
 
-        names = sorted(filled.keys())
+        names = sorted(filled_names)
         pairs = list(combinations(names, 2))
         row: list[float] = [float(self._step)]
         for a, b in pairs:
-            ca, cb = filled[a], filled[b]
-            denom = torch.norm(ca) * torch.norm(cb)
-            cos = float(torch.dot(ca, cb) / (denom + 1e-12)) if denom > 0 else float("nan")
-            row.append(cos)
+            ga_list, gb_list = grad_buffers[a], grad_buffers[b]
+            parts_a, parts_b = [], []
+            for ga, gb in zip(ga_list, gb_list):
+                if ga is not None and gb is not None:
+                    parts_a.append(ga.flatten())
+                    parts_b.append(gb.flatten())
+            if not parts_a:
+                row.append(float("nan"))
+            else:
+                ca = torch.cat(parts_a, dim=0)
+                cb = torch.cat(parts_b, dim=0)
+                denom = torch.norm(ca) * torch.norm(cb)
+                cos = float(torch.dot(ca, cb) / (denom + 1e-12)) if denom > 0 else float("nan")
+                row.append(cos)
 
         header_ok = self._fieldnames is None
         if header_ok:
