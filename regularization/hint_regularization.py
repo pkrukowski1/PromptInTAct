@@ -8,7 +8,7 @@ from typing import List, Tuple
 
 class IntervalHypernetRegularizer:
     """
-    Class-based regularizer for interval bound propagation in a hypernetwork.
+    Regularizer for interval bound propagation in a hypernetwork.
     Maintains references to the hypernetwork and main network to compute targets
     and regularization loss across the lower, middle, and upper interval bounds.
     """

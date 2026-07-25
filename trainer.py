@@ -164,7 +164,7 @@ class Trainer:
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
 
-        if args.use_hint:
+        if args.use_hint and self.dil:
             # NOTE HINT works currently only for DIL scenario
             classifier = IntervalMLP(n_in=768,
                                 n_out=num_classes,
