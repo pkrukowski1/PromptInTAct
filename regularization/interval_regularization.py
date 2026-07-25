@@ -77,6 +77,8 @@ class IntervalPenalization(nn.Module):
         self._sample_sum = 0.0
         self._n_interval_layers = 0
 
+        self.cumulative_box_history = []
+
     def detach_interval_last_batches(self, curr_classifier_head: nn.Sequential) -> None:
         """
         Clears the stored last batch activations in all IntervalActivation layers
@@ -124,6 +126,7 @@ class IntervalPenalization(nn.Module):
                 if isinstance(layer, IntervalActivation):
                     self._snapshot_layer(task_id - 1, idx, layer)
                     layer.reset_range()
+                    self._snapshot_cumulative_bounds(task_id - 1, idx, layer)
                     print(f"Volume of the cumulative hypercube for {idx+1}-th layer in classification head: {torch.mean(layer.max - layer.min).item()}")
 
         layers = list(self.curr_classifier_head.children())
@@ -143,6 +146,32 @@ class IntervalPenalization(nn.Module):
         while len(boxes) <= layer_idx:
             boxes.append(None)
         boxes[layer_idx] = (tmin, tmax)
+
+    def _snapshot_cumulative_bounds(self, task_id: int, layer_idx: int, layer: IntervalActivation) -> None:
+        if not self.use_metrics:
+            return
+        while len(self.cumulative_box_history) <= task_id:
+            self.cumulative_box_history.append([])
+        boxes = self.cumulative_box_history[task_id]
+        while len(boxes) <= layer_idx:
+            boxes.append(None)
+        if layer.min is not None and layer.max is not None:
+            boxes[layer_idx] = (layer.min.clone(), layer.max.clone())
+
+    def _current_cumulative_bounds(self):
+        layers = list(self.curr_classifier_head.children())
+        result = []
+        for layer in layers:
+            if isinstance(layer, IntervalActivation):
+                tmin, tmax = self._get_task_bounds(layer)
+                if tmin is not None and tmax is not None:
+                    if layer.min is not None and layer.max is not None:
+                        tmin = torch.minimum(layer.min.cpu(), tmin)
+                        tmax = torch.maximum(layer.max.cpu(), tmax)
+                elif layer.min is not None and layer.max is not None:
+                    tmin, tmax = layer.min.cpu().clone(), layer.max.cpu().clone()
+                result.append((tmin, tmax))
+        return result
 
     def compute_metrics(self) -> dict:
         result = {}
@@ -196,6 +225,7 @@ class IntervalPenalization(nn.Module):
         for idx, layer in enumerate(layers):
             if isinstance(layer, IntervalActivation):
                 self._snapshot_layer(self.task_id, idx, layer)
+                self._snapshot_cumulative_bounds(self.task_id, idx, layer)
         return self.compute_metrics()
 
     def _get_task_bounds(self, layer: IntervalActivation):

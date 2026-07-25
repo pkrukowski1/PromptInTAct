@@ -11,6 +11,7 @@ from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
 from regularization.interval_regularization import IntervalPenalization
+from models.layers.interval_activation import IntervalActivation
 
 class Trainer:
 
@@ -274,6 +275,9 @@ class Trainer:
                 acc_table.append(self.task_eval(j))
             temp_table['acc'].append(np.mean(np.asarray(acc_table)))
 
+            if interval_penalization is not None and self.args.use_intact_metrics:
+                self._record_coverage_for_task(i)
+
             # save temporary acc results
             for mkey in ['acc']:
                 save_file = temp_dir + mkey + '.csv'
@@ -289,9 +293,100 @@ class Trainer:
                 print("=== InTAct Metrics ===")
                 for k, v in metrics.items():
                     print(f"  {k}: {v}")
+            if self.args.use_intact_metrics:
+                self._print_coverage_table()
 
         return avg_metrics 
     
+    def _get_classifier(self):
+        return self.learner.model.module.classifier if hasattr(self.learner.model, 'module') \
+            else self.learner.model.classifier
+
+    def _set_task_id(self, tid):
+        try:
+            self.learner.model.module.task_id = tid
+        except:
+            self.learner.model.task_id = tid
+
+    def _collect_activations(self, tid):
+        classifier = self._get_classifier()
+        n_layers = sum(1 for layer in classifier if isinstance(layer, IntervalActivation))
+        self.test_dataset.load_dataset(tid, train=False)
+        test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size,
+                                 shuffle=False, drop_last=False, num_workers=self.workers)
+        buf_list = [[] for _ in range(n_layers)]
+        for layer in classifier:
+            if isinstance(layer, IntervalActivation):
+                layer.external_buffer = []
+        with torch.no_grad():
+            for inputs, targets in test_loader:
+                inputs = inputs.cuda()
+                self.learner.model(inputs, train=False)
+                li = 0
+                for layer in classifier:
+                    if isinstance(layer, IntervalActivation):
+                        if layer.external_buffer:
+                            buf_list[li].append(torch.cat(layer.external_buffer, dim=0))
+                        layer.external_buffer = []
+                        li += 1
+        for layer in classifier:
+            if isinstance(layer, IntervalActivation):
+                layer.external_buffer = None
+        for li in range(n_layers):
+            if buf_list[li]:
+                return torch.cat(buf_list[li], dim=0)
+        return None
+
+    def _record_coverage_for_task(self, task_id):
+        if not hasattr(self, '_coverage_cols'):
+            self._coverage_cols = []
+        classifier = self._get_classifier()
+        saved_buffers = []
+        for layer in classifier:
+            if isinstance(layer, IntervalActivation):
+                saved_buffers.append((layer, [t.clone() for t in layer.test_act_buffer]))
+        current_bounds = self.interval_penalization._current_cumulative_bounds()
+        if not current_bounds or current_bounds[0][0] is None:
+            for layer, saved in saved_buffers:
+                layer.test_act_buffer = saved
+            self._coverage_cols.append(None)
+            return
+        lb, ub = current_bounds[0]
+        self.learner.model.eval()
+        col = []
+        for j in range(task_id + 1):
+            self._set_task_id(j)
+            acts = self._collect_activations(j)
+            if acts is not None:
+                inside = ((acts >= lb) & (acts <= ub)).float().sum().item()
+                total = acts.numel()
+                col.append(inside / total if total > 0 else 0.0)
+            else:
+                col.append(None)
+        for layer, saved in saved_buffers:
+            layer.test_act_buffer = saved
+        self._coverage_cols.append(col)
+
+    def _print_coverage_table(self):
+        if not hasattr(self, '_coverage_cols') or not self._coverage_cols:
+            return
+        T = len(self._coverage_cols)
+        print("\n=== Hypercube Coverage Table ===")
+        print("Rows: source task activations (using model after that column's task)")
+        print("Cols: after training task j, hypercube H_j (extended with task j activations)")
+        header = "Task \\ After | " + " ".join(f"T{j:>7}" for j in range(T))
+        print(header)
+        print("-" * len(header))
+        for src in range(T):
+            vals = []
+            for j in range(T):
+                col = self._coverage_cols[j]
+                if col is None or src >= len(col) or col[src] is None:
+                    vals.append("       ")
+                else:
+                    vals.append(f"{col[src]:7.4f}")
+            print(f"      T{src}    | {' '.join(vals)}")
+
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt):
 
         # unpack dictionary

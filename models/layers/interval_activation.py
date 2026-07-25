@@ -53,6 +53,7 @@ class IntervalActivation(nn.Module):
 
         self.curr_task_last_batch = None
         self.test_act_buffer = []
+        self.external_buffer = None
 
     def reset_range(self) -> None:
         """
@@ -128,5 +129,7 @@ class IntervalActivation(nn.Module):
             self.curr_task_last_batch = out        
         else:
             self.test_act_buffer.append(out.detach().cpu().view(out.size(0), -1))
+            if self.external_buffer is not None:
+                self.external_buffer.append(out.detach().cpu().view(out.size(0), -1))
 
         return out
