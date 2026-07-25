@@ -52,7 +52,7 @@ for hnet_embedding_size in "${HNET_EMBEDDING_SIZE[@]}"; do
           --log_dir $LOGDIR \
           --hnet_embedding_size $hnet_embedding_size \
           --perturbated_epsilon $perturbated_epsilon \
-          --hnet_loss_reg hnet_loss_reg \
+          --hnet_loss_reg $hnet_loss_reg \
           --hnet_hidden_neurons 100 100
     done
   done

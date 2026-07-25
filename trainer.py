@@ -13,7 +13,8 @@ from dataloaders.utils import *
 from torch.utils.data import DataLoader
 from regularization.interval_regularization import IntervalPenalization
 from regularization.hint_regularization import IntervalHypernetRegularizer
-from .models.hint import HMLP_IBP, IntervalMLP
+from models.hint.interval_hnet import HMLP_IBP
+from models.hint.interval_mlp import IntervalMLP
 
 class Trainer:
 
