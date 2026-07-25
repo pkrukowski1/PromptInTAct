@@ -53,7 +53,7 @@ def create_args():
     parser.add_argument('--hnet_embedding_size', type=int, default=24, help="Dimension of the hypernetwork embedding")
     parser.add_argument('--perturbated_epsilon', type=float, default=1.0, help="Hypercube radius in the hypernetwork embedding space")
     parser.add_argument('--hnet_loss_reg', type=float, default=0.01, help="Hypernetwork regularization strength")
-    parser.add_argument('--hnet_param', nargs="+", type=int, default=[100, 100],
+    parser.add_argument('--hnet_hidden_neurons', nargs="+", type=int, default=[100, 100],
                              help="Number of neurons in each hypernetwork layer")
 
     # Data Args

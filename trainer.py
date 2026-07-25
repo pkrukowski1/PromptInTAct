@@ -180,9 +180,9 @@ class Trainer:
                 perturbated_eps=args.perturbated_epsilon,
                 target_shapes=classifier.param_shapes,
                 uncond_in_size=0,
+                layers=args.hnet_hidden_neurons,
                 cond_in_size=args.hnet_embedding_size,
                 activation_fn=torch.nn.ReLU(),
-                layers=args.hnet_param,
                 num_cond_embs=self.num_tasks)
 
             self.learner.model.module.hnet = hnet

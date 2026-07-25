@@ -36,15 +36,17 @@ mkdir -p $OUTDIR
 #    arg 1 = prompt component pool size
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
-HNET_EMBEDDING_SIZE=("24 48")
-PERTURBATED_EPSILON=("0.5 1.0")
-HNET_LOSS_REG=("0.01 0.1")
+HNET_EMBEDDING_SIZE=(24 48)
+PERTURBATED_EPSILON=(0.5 1.0)
+HNET_LOSS_REG=(0.01 0.1)
 
 for hnet_embedding_size in "${HNET_EMBEDDING_SIZE[@]}"; do
   for perturbated_epsilon in "${PERTURBATED_EPSILON[@]}"; do
     for hnet_loss_reg in "${HNET_LOSS_REG[@]}"; do
-        LOGDIR=${OUTDIR}/hint_coda-p/embsize${hnet_embedding_size}_eps${perturb_eps}_reg${hnet_loss_reg}
+        
+        LOGDIR=${OUTDIR}/hint_coda-p/embsize${hnet_embedding_size}_eps${perturbated_epsilon}_reg${hnet_loss_reg}
         mkdir -p $LOGDIR
+        
         python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
           --learner_type prompt --learner_name CODAPrompt \
           --prompt_param 100 8 0.0 \
