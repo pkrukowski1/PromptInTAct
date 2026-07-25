@@ -25,15 +25,6 @@ class Prompt(NormalNN):
 
     def update_model(self, inputs, targets, interval_penalization=None, hnet_reg=None):
 
-        if hnet_reg is not None:
-            hnet_target = self.model.module.hnet if hasattr(self.model, 'module') else getattr(self.model, 'hnet', None)
-            
-            if not hasattr(self, 'current_iter'):
-                self.current_iter = 0
-                
-            if hnet_target is not None:
-                hnet_target.set_iteration(self.current_iter)
-
         out, prompt_loss = self.model(inputs, train=True)
         
         if isinstance(out, tuple) and len(out) == 3:
@@ -100,7 +91,7 @@ class Prompt(NormalNN):
                     upper_targets=self.hnet_upper_targets
                 )
                 
-                beta = self.config.get('beta', 1.0) 
+                beta = self.config['hnet_loss_reg']
                 total_loss += (beta * reg_loss) / task_id
 
         # 6. Prompt Regularization Loss
@@ -115,8 +106,6 @@ class Prompt(NormalNN):
         self.optimizer.step()
         
         # Increment iteration for epsilon and kappa scheduling
-        if not hasattr(self, 'current_iter'):
-            self.current_iter = 0
         self.current_iter += 1
 
         # Return middle logits for accuracy calculations
