@@ -311,7 +311,7 @@ class Trainer:
     def _collect_activations(self, tid):
         classifier = self._get_classifier()
         n_layers = sum(1 for layer in classifier if isinstance(layer, IntervalActivation))
-        self.test_dataset.load_dataset(tid, train=False)
+        self.test_dataset.load_dataset(tid, train=True)
         test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size,
                                  shuffle=False, drop_last=False, num_workers=self.workers)
         buf_list = [[] for _ in range(n_layers)]
@@ -319,8 +319,8 @@ class Trainer:
             if isinstance(layer, IntervalActivation):
                 layer.external_buffer = []
         with torch.no_grad():
-            for inputs, targets in test_loader:
-                inputs = inputs.cuda()
+            for batch in test_loader:
+                inputs = batch[0].cuda()
                 self.learner.model(inputs, train=False)
                 li = 0
                 for layer in classifier:
