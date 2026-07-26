@@ -3,12 +3,16 @@ import csv
 
 
 class GradientCosineTracker:
-    """Logs cosine similarity between interval_drift and align loss gradients."""
+    """Logs cosine similarity between interval_drift and align loss gradients.
+
+    Uses per-component backward() calls instead of autograd.grad() to avoid
+    tracing failures through stored intermediate activations.
+    """
 
     def __init__(self, optimizer, csv_path):
         self.csv_path = csv_path
         self._step = 0
-        self._fieldnames = None
+        self._header_written = False
 
         self._params: list[torch.Tensor] = []
         for pg in optimizer.param_groups:
@@ -22,39 +26,42 @@ class GradientCosineTracker:
         drift_t = loss_dict.get("interval_drift")
         align_t = loss_dict.get("align")
 
-        if drift_t is None or not drift_t.requires_grad:
-            drift_grads = None
-        else:
-            drift_grads = torch.autograd.grad(
-                drift_t, params, only_inputs=True, retain_graph=True, allow_unused=True
-            )
+        drift_ok = drift_t is not None and drift_t.requires_grad
+        align_ok = align_t is not None and align_t.requires_grad
 
-        if align_t is None or not align_t.requires_grad:
-            align_grads = None
-        else:
-            align_grads = torch.autograd.grad(
-                align_t, params, only_inputs=True, retain_graph=True, allow_unused=True
-            )
+        cos = float("nan")
 
-        parts_d, parts_a = [], []
-        if drift_grads is not None and align_grads is not None:
-            for g1, g2 in zip(drift_grads, align_grads):
-                if g1 is not None and g2 is not None:
-                    parts_d.append(g1.flatten().cpu())
-                    parts_a.append(g2.flatten().cpu())
+        if drift_ok and align_ok:
+            self._zero_grads(params)
+            drift_t.backward(retain_graph=True)
+            drift_grads = {p: p.grad.detach().cpu().clone() for p in params if p.grad is not None}
 
-        if not parts_d:
-            cos = float("nan")
+            self._zero_grads(params)
+            align_t.backward(retain_graph=True)
+            align_grads = {p: p.grad.detach().cpu().clone() for p in params if p.grad is not None}
+
+            self._zero_grads(params)
+
+            shared = [p for p in params if p in drift_grads and p in align_grads]
+            if shared:
+                v_d = torch.cat([drift_grads[p].flatten() for p in shared])
+                v_a = torch.cat([align_grads[p].flatten() for p in shared])
+                denom = torch.norm(v_d) * torch.norm(v_a)
+                cos = float(torch.dot(v_d, v_a) / (denom + 1e-12)) if denom > 0 else float("nan")
+
         else:
-            v_d, v_a = torch.cat(parts_d), torch.cat(parts_a)
-            denom = torch.norm(v_d) * torch.norm(v_a)
-            cos = float(torch.dot(v_d, v_a) / (denom + 1e-12)) if denom > 0 else float("nan")
+            self._zero_grads(params)
 
         with open(self.csv_path, "a", newline="") as f:
             w = csv.writer(f)
-            if self._fieldnames is None:
+            if not self._header_written:
                 w.writerow(["step", "interval_drift__align"])
+                self._header_written = True
             w.writerow([float(self._step), cos])
 
-        self._fieldnames = ["step", "interval_drift__align"]
         self._step += 1
+
+    @staticmethod
+    def _zero_grads(params):
+        for p in params:
+            p.grad = None

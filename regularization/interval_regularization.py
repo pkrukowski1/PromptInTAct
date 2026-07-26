@@ -308,7 +308,7 @@ class IntervalPenalization(nn.Module):
                     y_old = y_old[:,0,:].detach()
 
                     mask = ((acts >= lb) & (acts <= ub)).float()
-                    interval_drift_loss += (
+                    interval_drift_loss = interval_drift_loss + (
                         (mask * (y_old - acts).pow(2)).sum() / (mask.sum() + 1e-8)
                     )
 
@@ -355,7 +355,7 @@ class IntervalPenalization(nn.Module):
 
                     center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
 
-                    align_repr_loss += center_loss / (prev_radii.mean() + 1e-8)
+                    align_repr_loss = align_repr_loss + center_loss / (prev_radii.mean() + 1e-8)
         scaled_var = self.var_loss_scale * var_loss
         scaled_output_reg = self.internal_repr_drift_loss_scale * output_reg_loss
         scaled_interval_drift = self.feature_loss_scale * interval_drift_loss
