@@ -3,10 +3,11 @@
 #SBATCH --qos=big
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --mem=80G
 #SBATCH --partition=dgxh100
 
-source activate prompt_intact
+source $HOME/miniconda3/bin/activate
+conda activate /shared/results/common/miksa/envs/prompt_intact
 
 # experiment settings
 DATASET=DIL_ImageNet_R
