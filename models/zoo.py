@@ -366,8 +366,8 @@ class ViTZoo(nn.Module):
                                         num_heads=12, ckpt_layer=0,
                                         drop_path_rate=0
                                         )
-            from timm.models import vit_base_patch16_224
-            load_dict = vit_base_patch16_224(pretrained=True).state_dict()
+            import timm
+            load_dict = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True).state_dict()
             del load_dict['head.weight']; del load_dict['head.bias']
             zoo_model.load_state_dict(load_dict)
 
