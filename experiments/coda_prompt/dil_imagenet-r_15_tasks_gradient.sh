@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --partition=dgx
+#SBATCH --partition=dgxh100
 
 source activate prompt_intact
 
