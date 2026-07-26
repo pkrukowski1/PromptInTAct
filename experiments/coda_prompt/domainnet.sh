@@ -17,7 +17,7 @@ N_CLASS=345
 
 # save directory
 # PLEASE CHANGE THIS!!!
-OUTDIR=./${DATASET}/5-task
+OUTDIR=/shared/results/common/helm/IntervalActivationPromptCL/${DATASET}/5-task/gs
 
 # hard coded inputs
 GPUID='0'
@@ -36,9 +36,9 @@ mkdir -p $OUTDIR
 #    arg 1 = prompt component pool size
 #    arg 2 = prompt length
 #    arg 3 = ortho penalty loss weight - with updated code, now can be 0!
-VAR_LOSS_SCALES=("0.001" "0.01" "0.1" "1.0")
-INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.0001" "0.001" "0.1")
-FEATURE_LOSS_SCALES=("0.0001" "0.001" "0.1")
+VAR_LOSS_SCALES=("0.1" "1.0")
+INTERNAL_REPRESENTATION_DRIFT_REG_SCALES=("0.0001" "0.001")
+FEATURE_LOSS_SCALES=("0.0001" "0.001")
 
 for var in "${VAR_LOSS_SCALES[@]}"; do
   for out in "${INTERNAL_REPRESENTATION_DRIFT_REG_SCALES[@]}"; do
