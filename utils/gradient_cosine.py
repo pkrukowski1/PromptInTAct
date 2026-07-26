@@ -10,7 +10,7 @@ class GradientCosineTracker:
     as an optional side-effect; zero overhead when not set.
     """
 
-    loss_names = ["ce", "var", "output_reg", "interval_drift", "align"]
+    loss_names = ["var", "output_reg", "interval_drift", "align", "ce"]
 
     def __init__(self, optimizer, csv_path):
         self.csv_path = csv_path
