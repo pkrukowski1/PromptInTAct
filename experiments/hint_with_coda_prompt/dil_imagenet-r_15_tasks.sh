@@ -4,9 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --partition=dgxh100
-#SBATCH --array=0-7
-
+#SBATCH --partition=rtx4090
 
 eval "$(conda shell.bash hook)"
 conda activate prompt_intact
@@ -17,34 +15,23 @@ N_CLASS=200
 
 # save directory
 # OUTDIR=./${DATASET}/15-task
-OUTDIR=/shared/results/pkrukowski/InTactPromptCL/${DATASET}/15-task
+OUTDIR=/shared/results/pkrukowski/InTactPromptCL/${DATASET}/15-task/best
 mkdir -p $OUTDIR
 
 # hard coded inputs
 GPUID='0'
 CONFIG=configs/dil_hint_imnet-r_prompt_15_tasks.yaml
-REPEAT=1
+REPEAT=3
 OVERWRITE=0
 
 ###############################################################
 # ARRAY JOB PARAMETER MAPPING
 ###############################################################
 # Define the arrays
-HNET_EMBEDDING_SIZE=(48 96)
-PERTURBATED_EPSILON=(0.05 0.1)
-HNET_LOSS_REG=(0.01 0.1)
+hnet_embedding_size=48
+perturbated_epsilon=0.1
+hnet_loss_reg=0.01
 
-# Map the SLURM_ARRAY_TASK_ID (0-7) to the respective indices
-idx_emb=$(( (SLURM_ARRAY_TASK_ID / 4) % 2 ))
-idx_eps=$(( (SLURM_ARRAY_TASK_ID / 2) % 2 ))
-idx_reg=$(( SLURM_ARRAY_TASK_ID % 2 ))
-
-# Extract the specific parameter values for this job
-hnet_embedding_size=${HNET_EMBEDDING_SIZE[$idx_emb]}
-perturbated_epsilon=${PERTURBATED_EPSILON[$idx_eps]}
-hnet_loss_reg=${HNET_LOSS_REG[$idx_reg]}
-
-echo "Running Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Parameters: Emb_Size=${hnet_embedding_size}, Eps=${perturbated_epsilon}, Reg=${hnet_loss_reg}"
 
 ###############################################################
