@@ -126,7 +126,7 @@ class IntervalActivation(nn.Module):
             out = F.leaky_relu(out)
 
         if self.training:
-            self.curr_task_last_batch = out        
+            self.curr_task_last_batch = out.clone()        
         else:
             self.test_act_buffer.append(out.detach().cpu().view(out.size(0), -1))
             if self.external_buffer is not None:
