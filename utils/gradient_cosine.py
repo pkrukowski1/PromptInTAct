@@ -29,6 +29,17 @@ class GradientCosineTracker:
         drift_ok = drift_t is not None and drift_t.requires_grad
         align_ok = align_t is not None and align_t.requires_grad
 
+        # diagnostic: log once per tracker instance (once per task)
+        if self._step == 0:
+            d_val = drift_t.item() if drift_t is not None else "N/A"
+            a_val = align_t.item() if align_t is not None else "N/A"
+            d_fn = str(drift_t.grad_fn) if (drift_t is not None and hasattr(drift_t, 'grad_fn')) else "N/A"
+            a_fn = str(align_t.grad_fn) if (align_t is not None and hasattr(align_t, 'grad_fn')) else "N/A"
+            print(f"[GRAD_DIAG] step=0 requires_grad drift={drift_ok} align={align_ok} "
+                  f"drift_val={d_val} align_val={a_val} "
+                  f"drift_raw_fn={d_fn} align_raw_fn={a_fn} "
+                  f"n_params={len(params)}", flush=True)
+
         cos = float("nan")
 
         if drift_ok and align_ok:
@@ -41,6 +52,10 @@ class GradientCosineTracker:
             align_grads = {p: p.grad.detach().cpu().clone() for p in params if p.grad is not None}
 
             self._zero_grads(params)
+
+            if self._step == 0:
+                print(f"[GRAD_DIAG] n_drift_grads={len(drift_grads)} n_align_grads={len(align_grads)} "
+                      f"shared={len([p for p in params if p in drift_grads and p in align_grads])}", flush=True)
 
             shared = [p for p in params if p in drift_grads and p in align_grads]
             if shared:
