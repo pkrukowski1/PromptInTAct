@@ -70,7 +70,7 @@ class MLPModel(nn.Module):
         return logits, None
 
 
-def get_split_mnist(task_id, batch_size=256):
+def get_split_mnist(task_id, batch_size=256, negate=False):
     """Split MNIST: task 0 = digits 0-4, task 1 = digits 5-9."""
     t = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
     ds_train = datasets.MNIST('~/data/mnist', train=True, download=True, transform=t)
@@ -81,6 +81,8 @@ def get_split_mnist(task_id, batch_size=256):
     def filter_ds(ds):
         idx = (ds.targets >= lo) & (ds.targets < hi)
         data = (ds.data[idx].float() / 255.0 - 0.1307) / 0.3081
+        if negate:
+            data = -data
         data = data.unsqueeze(1)
         targets = ds.targets[idx] - lo
         return data, targets
@@ -164,6 +166,7 @@ def main():
     parser.add_argument('--epochs1', type=int, default=10)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log_dir', type=str, default='./split_mnist_grad_cosine')
+    parser.add_argument('--negate_task1', action='store_true', help='Use -MNIST for task 1 (forces violations)')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -223,13 +226,14 @@ def main():
     interval_pen.setup_task(1, model.classifier, model.feature_extractor, model.feature_extractor)
     interval_pen.gradient_tracker = grad_tracker
 
-    if not args.real_bounds:
+    if not args.real_bounds and not args.negate_task1:
         set_artificial_bounds(model)
         print("  Using artificial bounds (split-dims) to force both loss gradients non-zero")
 
     # ---- Task 1 training ----
-    print("[Task 1] Training on digits 5-9 with drift + align losses...")
-    train_1, test_1 = get_split_mnist(1, args.batch_size)
+    desc = "negated digits 5-9" if args.negate_task1 else "digits 5-9"
+    print(f"[Task 1] Training on {desc} with drift + align losses...")
+    train_1, test_1 = get_split_mnist(1, args.batch_size, negate=args.negate_task1)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epochs1):

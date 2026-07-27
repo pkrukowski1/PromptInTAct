@@ -367,17 +367,12 @@ class IntervalPenalization(nn.Module):
                 if self.use_align_loss:
                     prev_center = (ub + lb) / 2.0
                     prev_radii  = (ub - lb) / 2.0
-                    
-                    lb_prev_hypercube = prev_center - prev_radii
-                    ub_prev_hypercube = prev_center + prev_radii
 
                     new_lb, _ = acts_flat.min(dim=0)
                     new_ub, _ = acts_flat.max(dim=0)
-
-                    non_overlap_mask = (new_lb > ub_prev_hypercube) | (new_ub < lb_prev_hypercube)
                     new_center = (new_ub + new_lb) / 2.0
 
-                    center_loss = torch.norm(new_center[non_overlap_mask] - prev_center[non_overlap_mask], p=2)
+                    center_loss = torch.norm(new_center - prev_center, p=2)
 
                     align_repr_loss = align_repr_loss + center_loss / (prev_radii.mean() + 1e-8)
         scaled_var = self.var_loss_scale * var_loss
