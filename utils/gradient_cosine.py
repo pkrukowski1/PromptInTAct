@@ -38,7 +38,10 @@ class GradientCosineTracker:
 
             self._zero_grads(params)
 
-            shared = [p for p in params if p in drift_grads and p in align_grads]
+            shared = [p for p in params
+                      if p in drift_grads and p in align_grads
+                      and drift_grads[p].abs().sum() > 0
+                      and align_grads[p].abs().sum() > 0]
             if shared:
                 v_d = torch.cat([drift_grads[p].flatten() for p in shared])
                 v_a = torch.cat([align_grads[p].flatten() for p in shared])
