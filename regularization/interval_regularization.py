@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import itertools
 
 from models.layers.interval_activation import IntervalActivation
 from models.zoo import L2P, DualPrompt, CodaPrompt
@@ -187,10 +188,13 @@ class IntervalPenalization(nn.Module):
             return result
         eps = 1e-10
         cum_log_vols = []
+        cum_sides_cpu = []
         for cm, cM in cum_boxes:
-            cum_log_vols.append(torch.sum(torch.log((cM - cm).clamp(min=eps))).item())
+            sides = (cM - cm).clamp(min=eps).cpu()
+            cum_log_vols.append(torch.sum(torch.log(sides)).item())
+            cum_sides_cpu.append(sides)
         for layer_idx in range(len(cum_boxes)):
-            log_V_i_list = []
+            task_boxes_for_layer = []
             for task_idx, task_boxes in enumerate(self._task_box_history):
                 if len(task_boxes) <= layer_idx:
                     continue
@@ -203,14 +207,31 @@ class IntervalPenalization(nn.Module):
                 V_ratio_i = float(np.exp(log_ratio_i))
                 result[f"V_ratio_task{task_idx}_layer{layer_idx}"] = V_ratio_i
                 result[f"log_ratio_task{task_idx}_layer{layer_idx}"] = log_ratio_i
-                log_V_i_list.append(log_V_i)
-            if log_V_i_list:
-                log_total_volume = float(
-                    torch.logsumexp(torch.tensor(log_V_i_list, dtype=torch.float64), dim=0).item()
-                )
-                log_V_cum = cum_log_vols[layer_idx]
-                V_log_ratio = log_total_volume - log_V_cum
-                V_ratio = float(np.exp(V_log_ratio))
+                task_boxes_for_layer.append((tmin, tmax))
+            n_tasks = len(task_boxes_for_layer)
+            if n_tasks > 0:
+                cum_sides = cum_sides_cpu[layer_idx].double()
+                V_ratio_total = torch.tensor(0.0, dtype=torch.float64)
+                for k in range(1, n_tasks + 1):
+                    sign = 1.0 if k % 2 == 1 else -1.0
+                    for subset in itertools.combinations(range(n_tasks), k):
+                        mins = torch.stack([task_boxes_for_layer[i][0].double() for i in subset])
+                        maxs = torch.stack([task_boxes_for_layer[i][1].double() for i in subset])
+                        lower = mins.max(dim=0).values
+                        upper = maxs.min(dim=0).values
+                        overlap = (upper - lower).clamp(min=0.0)
+                        if (overlap == 0.0).any():
+                            continue
+                        log_ratio_sum = torch.sum(
+                            torch.log((overlap / cum_sides).clamp(min=eps))
+                        ).item()
+                        if log_ratio_sum > -745:
+                            V_ratio_total += sign * float(np.exp(log_ratio_sum))
+                V_ratio = max(0.0, V_ratio_total.item())
+                if V_ratio > 0:
+                    V_log_ratio = float(np.log(V_ratio))
+                else:
+                    V_log_ratio = float('-inf')
                 result[f"V_ratio_sum_layer{layer_idx}"] = V_ratio
                 result[f"V_log_ratio_sum_layer{layer_idx}"] = V_log_ratio
         c_rate = self._violation_sum / max(self._sample_sum, 1)
