@@ -178,39 +178,41 @@ class IntervalPenalization(nn.Module):
         result = {}
         if not self.use_metrics:
             return result
-        cum_boxes = []
         layers = list(self.curr_classifier_head.children())
-        for l in layers:
+        cum_boxes_info = []
+        for idx, l in enumerate(layers):
             if isinstance(l, IntervalActivation):
                 if l.min is not None and l.max is not None:
-                    cum_boxes.append((l.min.clone(), l.max.clone()))
-        if not cum_boxes:
+                    cum_boxes_info.append((idx, l.min.clone(), l.max.clone()))
+        if not cum_boxes_info:
             return result
         eps = 1e-10
         cum_log_vols = []
         cum_sides_cpu = []
-        for cm, cM in cum_boxes:
+        for _, cm, cM in cum_boxes_info:
             sides = (cM - cm).clamp(min=eps).cpu()
             cum_log_vols.append(torch.sum(torch.log(sides)).item())
             cum_sides_cpu.append(sides)
-        for layer_idx in range(len(cum_boxes)):
+        for layer_i, (seq_idx, _, _) in enumerate(cum_boxes_info):
+            cur_log_vol = cum_log_vols[layer_i]
+            cur_sides = cum_sides_cpu[layer_i]
             task_boxes_for_layer = []
             for task_idx, task_boxes in enumerate(self._task_box_history):
-                if len(task_boxes) <= layer_idx:
+                if len(task_boxes) <= seq_idx:
                     continue
-                box = task_boxes[layer_idx]
+                box = task_boxes[seq_idx]
                 if box is None or box[0] is None:
                     continue
                 tmin, tmax = box
                 log_V_i = torch.sum(torch.log((tmax - tmin).clamp(min=eps))).item()
-                log_ratio_i = log_V_i - cum_log_vols[layer_idx]
+                log_ratio_i = log_V_i - cur_log_vol
                 V_ratio_i = float(np.exp(log_ratio_i))
-                result[f"V_ratio_task{task_idx}_layer{layer_idx}"] = V_ratio_i
-                result[f"log_ratio_task{task_idx}_layer{layer_idx}"] = log_ratio_i
+                result[f"V_ratio_task{task_idx}_layer{layer_i}"] = V_ratio_i
+                result[f"log_ratio_task{task_idx}_layer{layer_i}"] = log_ratio_i
                 task_boxes_for_layer.append((tmin, tmax))
             n_tasks = len(task_boxes_for_layer)
             if n_tasks > 0:
-                cum_sides = cum_sides_cpu[layer_idx].double()
+                cum_sides = cur_sides.double()
                 V_ratio_total = torch.tensor(0.0, dtype=torch.float64)
                 for k in range(1, n_tasks + 1):
                     sign = 1.0 if k % 2 == 1 else -1.0
@@ -232,8 +234,8 @@ class IntervalPenalization(nn.Module):
                     V_log_ratio = float(np.log(V_ratio))
                 else:
                     V_log_ratio = float('-inf')
-                result[f"V_ratio_sum_layer{layer_idx}"] = V_ratio
-                result[f"V_log_ratio_sum_layer{layer_idx}"] = V_log_ratio
+                result[f"V_ratio_sum_layer{layer_i}"] = V_ratio
+                result[f"V_log_ratio_sum_layer{layer_i}"] = V_log_ratio
         c_rate = self._violation_sum / max(self._sample_sum, 1)
         result["C_rate"] = c_rate
         return result
@@ -325,8 +327,9 @@ class IntervalPenalization(nn.Module):
                     with torch.no_grad():
                         q, _ = self.feature_extractor(x)
                         q = q[:,0,:]
-                    y_old, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id)
-                    y_old = y_old[:,0,:].detach()
+                    y_old_raw, _ = self.feature_extractor(x, prompt=self.old_prompt, q=q, train=False, task_id=self.task_id)
+                    y_old_raw = y_old_raw[:,0,:].detach()
+                    y_old = layers[idx - 1](y_old_raw)
 
                     mask = ((acts >= lb) & (acts <= ub)).float()
                     interval_drift_loss = interval_drift_loss + (
